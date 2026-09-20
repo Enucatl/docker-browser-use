@@ -4,6 +4,9 @@ Large audit payloads (screenshots, compressed browser state, downloads) live on
 a Docker volume. Postgres keeps **metadata only** in the `artifacts` table
 (schema from T006); blobs are content-addressed on disk.
 
+Browser-state checkpoint policy (when to write, env knobs, payload schema) is
+documented in [checkpoints.md](checkpoints.md) (T018).
+
 ## Layout
 
 Root (compose default): `/var/lib/browser-use/artifacts`

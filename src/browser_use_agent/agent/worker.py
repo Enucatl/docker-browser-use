@@ -17,11 +17,13 @@ from browser_use_agent.agent.browser_port import BrowserPort, BrowserUsePort
 from browser_use_agent.agent.loop import (
     AgentLoop,
     CheckpointHook,
+    CheckpointHookWithReason,
     LoopOutcome,
     NeedsApprovalHook,
     default_needs_approval,
 )
 from browser_use_agent.audit.browser_actions import BrowserActionWriter
+from browser_use_agent.audit.checkpoints import CheckpointWriter, load_checkpoint_settings
 from browser_use_agent.audit.model_calls import ModelCallWriter
 from browser_use_agent.audit.writer import AuditWriter
 from browser_use_agent.browser.session import BrowserSessionManager
@@ -153,7 +155,7 @@ class RunWorker:
         text_llm_factory: TextLLMFactory | None = None,
         browser_port_factory: Callable[[uuid.UUID, Session], BrowserPort] | None = None,
         needs_approval: NeedsApprovalHook | None = None,
-        checkpoint: CheckpointHook | None = None,
+        checkpoint: CheckpointHook | CheckpointHookWithReason | None = None,
         adapter: JevAdapter | None = None,
     ) -> None:
         """Create a run worker.
@@ -167,7 +169,9 @@ class RunWorker:
             text_llm_factory: Optional text LLM factory (T016).
             browser_port_factory: Optional test hook that returns a BrowserPort.
             needs_approval: Approval gate hook.
-            checkpoint: Optional checkpoint hook.
+            checkpoint: Optional checkpoint hook; when omitted, a
+                :class:`CheckpointWriter` is built per run when the artifact
+                store is available.
             adapter: Optional shared Jev adapter.
         """
         self.settings = settings if settings is not None else load_run_worker_settings()
@@ -178,6 +182,7 @@ class RunWorker:
         self.browser_port_factory = browser_port_factory
         self.needs_approval = needs_approval or default_needs_approval
         self.checkpoint = checkpoint
+        self._auto_checkpoint = checkpoint is None
         self.adapter = adapter if adapter is not None else JevAdapter()
         self._semaphore = asyncio.Semaphore(self.settings.max_concurrent_runs)
         self._tasks: dict[uuid.UUID, asyncio.Task[LoopOutcome]] = {}
@@ -269,7 +274,8 @@ class RunWorker:
             goal = run.goal
             profile_id = run.profile_id
             audit = AuditWriter(session)
-            model_calls = ModelCallWriter(session, artifact_store=_optional_artifact_store())
+            store = _optional_artifact_store()
+            model_calls = ModelCallWriter(session, artifact_store=store)
             browser_actions = BrowserActionWriter(session)
 
             if self.browser_port_factory is not None:
@@ -297,6 +303,18 @@ class RunWorker:
                 finally:
                     check.close()
 
+            checkpoint = self.checkpoint
+            if checkpoint is None and self._auto_checkpoint and store is not None:
+                cp_settings = load_checkpoint_settings()
+                if cp_settings.enabled:
+                    checkpoint = CheckpointWriter(
+                        audit,
+                        store,
+                        session=session,
+                        settings=cp_settings,
+                        commit=session.commit,
+                    )
+
             loop = AgentLoop(
                 run_id=run_id,
                 goal=goal,
@@ -309,7 +327,7 @@ class RunWorker:
                 adapter=self.adapter,
                 max_steps=self.settings.max_steps,
                 needs_approval=self.needs_approval,
-                checkpoint=self.checkpoint,
+                checkpoint=checkpoint,
                 is_cancelled=is_cancelled,
                 commit=session.commit,
             )

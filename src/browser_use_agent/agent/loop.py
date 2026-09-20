@@ -33,8 +33,14 @@ from browser_use_agent.security.redaction import redact_for_audit
 logger = logging.getLogger(__name__)
 
 NeedsApprovalHook = Callable[[AgentAction], bool]
+# force_reason is optional (approval / error boundaries); 3-arg hooks still work
+# when the loop calls without a fourth positional argument.
 CheckpointHook = Callable[
     [uuid.UUID, uuid.UUID, BrowserObservation],
+    Awaitable[None] | None,
+]
+CheckpointHookWithReason = Callable[
+    [uuid.UUID, uuid.UUID, BrowserObservation, str | None],
     Awaitable[None] | None,
 ]
 CancelCheck = Callable[[], bool | Awaitable[bool]]
@@ -129,7 +135,7 @@ class AgentLoop:
         browser_actions: BrowserActionWriter | None = None,
         max_steps: int = 50,
         needs_approval: NeedsApprovalHook | None = None,
-        checkpoint: CheckpointHook | None = None,
+        checkpoint: CheckpointHook | CheckpointHookWithReason | None = None,
         is_cancelled: CancelCheck | None = None,
         commit: Callable[[], None] | None = None,
     ) -> None:
@@ -147,7 +153,8 @@ class AgentLoop:
             browser_actions: Optional normalized browser-action writer (T017).
             max_steps: Maximum observe/decide/execute iterations.
             needs_approval: Approval gate hook (default always False).
-            checkpoint: Optional checkpoint writer (T018).
+            checkpoint: Optional checkpoint writer (T018). May accept an optional
+                fourth ``force_reason`` argument for approval/error boundaries.
             is_cancelled: Returns True when the run should stop cooperatively.
             commit: Optional callback after each audit batch (e.g. session.commit).
         """
@@ -324,10 +331,7 @@ class AgentLoop:
         )
         self._flush()
 
-        if self.checkpoint is not None:
-            maybe = self.checkpoint(self.run_id, step_id, observation)
-            if maybe is not None:
-                await maybe
+        await self._maybe_checkpoint(step_id, observation)
 
         if await self._cancelled():
             self.audit.append(
@@ -380,6 +384,7 @@ class AgentLoop:
         self._flush()
 
         if self.needs_approval(action):
+            await self._maybe_checkpoint(step_id, observation, force_reason="approval")
             self.audit.append(
                 self.run_id,
                 "approval_requested",
@@ -474,6 +479,7 @@ class AgentLoop:
             self._flush()
             self._history.append(f"{action.kind.value}:{result.message or 'ok'}")
         else:
+            await self._maybe_checkpoint(step_id, observation, force_reason="error")
             failed_event = self.audit.append(
                 self.run_id,
                 "action_failed",
@@ -768,6 +774,33 @@ class AgentLoop:
         if isinstance(result, Awaitable):
             return bool(await result)
         return bool(result)
+
+    async def _maybe_checkpoint(
+        self,
+        step_id: uuid.UUID,
+        observation: BrowserObservation,
+        *,
+        force_reason: str | None = None,
+    ) -> None:
+        """Invoke the optional checkpoint hook when configured.
+
+        Args:
+            step_id: Step grouping id.
+            observation: Latest observation.
+            force_reason: Optional force reason (``approval``, ``error``).
+        """
+        if self.checkpoint is None:
+            return
+        hook = self.checkpoint
+        if force_reason is not None:
+            try:
+                maybe = hook(self.run_id, step_id, observation, force_reason)  # type: ignore[call-arg]
+            except TypeError:
+                maybe = hook(self.run_id, step_id, observation)
+        else:
+            maybe = hook(self.run_id, step_id, observation)
+        if maybe is not None:
+            await maybe
 
     def _flush(self) -> None:
         """Commit the current audit batch when a commit callback is set."""

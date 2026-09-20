@@ -55,7 +55,7 @@ Status values: `todo` · `ready` · `blocked` · `in_progress` · `done` · `can
 | T015 | Observe → Jev → execute control loop with audit hooks | T009, T013, T014 | done | [tasks/T015.md](tasks/T015.md) |
 | T016 | Small text LLM gate for `TYPE_TEXT` only | T015 | done | [tasks/T016.md](tasks/T016.md) |
 | T017 | Model-call and browser-action tracing tables/writers | T009, T015 | done | [tasks/T017.md](tasks/T017.md) |
-| T018 | Compressed browser-state checkpoints on meaningful changes | T007, T015 | ready | [tasks/T018.md](tasks/T018.md) |
+| T018 | Compressed browser-state checkpoints on meaningful changes | T007, T015 | done | [tasks/T018.md](tasks/T018.md) |
 | T019 | Screenshot policy (WebP/JPEG, event-driven capture) | T007, T015 | ready | [tasks/T019.md](tasks/T019.md) |
 | T020 | Pause, resume, cancel, and retry controls | T010, T015 | ready | [tasks/T020.md](tasks/T020.md) |
 | T021 | Human approval gates for high-impact actions | T011, T015, T020 | todo | [tasks/T021.md](tasks/T021.md) |
@@ -79,7 +79,7 @@ Status values: `todo` · `ready` · `blocked` · `in_progress` · `done` · `can
 
 | ID | Title | Depends | Status | Guide |
 | --- | --- | --- | --- | --- |
-| T032 | Offline Jev evaluation harness from recorded states | T014, T018 | todo | [tasks/T032.md](tasks/T032.md) |
+| T032 | Offline Jev evaluation harness from recorded states | T014, T018 | ready | [tasks/T032.md](tasks/T032.md) |
 | T033 | Artifact retention policy and optional state diffs | T018, T019 | todo | [tasks/T033.md](tasks/T033.md) |
 | T034 | Optional MinIO backend for artifact storage | T007 | ready | [tasks/T034.md](tasks/T034.md) |
 | T035 | Periodic signed audit checkpoints | T009 | ready | [tasks/T035.md](tasks/T035.md) |

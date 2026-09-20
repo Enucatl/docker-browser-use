@@ -24,4 +24,11 @@ docker compose config
 
 Public URL: `https://browser-use.${DOCKER_DOMAIN}` behind Traefik with middlewares `authelia@docker,secured@file`. Authelia’s wildcard `*.docker.home.arpa` rule already allows `group:admins`; no Authelia config change is required for this stack.
 
-Secrets belong under [`secrets/`](secrets/) (gitignored except `.gitkeep` / README). CDP/VNC and future Postgres stay off `traefik_proxy` and are not published on the host.
+Secrets belong under [`secrets/`](secrets/) (gitignored except `.gitkeep` / README). Generate the Postgres password before first `compose up`:
+
+```bash
+openssl rand -hex 32 > secrets/postgres_password
+chmod 600 secrets/postgres_password
+```
+
+The `db` service (`postgres:18`) stays on the internal Compose network only — not on `traefik_proxy` and not published on the host. CDP/VNC follow the same rule when added.

@@ -35,7 +35,7 @@ Status values: `todo` · `ready` · `blocked` · `in_progress` · `done` · `can
 | --- | --- | --- | --- | --- |
 | T001 | Python project scaffold (uv, src layout, tooling) | — | done | [tasks/T001.md](tasks/T001.md) |
 | T002 | Compose stack skeleton: networks, Traefik, Authelia, hardening | T001 | done | [tasks/T002.md](tasks/T002.md) |
-| T003 | PostgreSQL service, secrets, and app DB wiring | T002 | ready | [tasks/T003.md](tasks/T003.md) |
+| T003 | PostgreSQL service, secrets, and app DB wiring | T002 | done | [tasks/T003.md](tasks/T003.md) |
 | T004 | Chromium/browser worker image and hardened runtime profile | T002 | ready | [tasks/T004.md](tasks/T004.md) |
 | T005 | Docker CI via compose-security-baseline reusable workflow | T002 | ready | [tasks/T005.md](tasks/T005.md) |
 
@@ -43,8 +43,8 @@ Status values: `todo` · `ready` · `blocked` · `in_progress` · `done` · `can
 
 | ID | Title | Depends | Status | Guide |
 | --- | --- | --- | --- | --- |
-| T006 | Event-sourcing schema and migrations | T003 | todo | [tasks/T006.md](tasks/T006.md) |
-| T007 | Artifact store (filesystem, SHA-256 dedupe, Zstd payloads) | T003 | todo | [tasks/T007.md](tasks/T007.md) |
+| T006 | Event-sourcing schema and migrations | T003 | ready | [tasks/T006.md](tasks/T006.md) |
+| T007 | Artifact store (filesystem, SHA-256 dedupe, Zstd payloads) | T003 | ready | [tasks/T007.md](tasks/T007.md) |
 | T008 | Secret redaction before any audit write | T001 | todo | [tasks/T008.md](tasks/T008.md) |
 | T009 | Audit event writer with hash chaining | T006, T008 | todo | [tasks/T009.md](tasks/T009.md) |
 | T010 | Agent controller FastAPI: run lifecycle API | T003, T006 | todo | [tasks/T010.md](tasks/T010.md) |

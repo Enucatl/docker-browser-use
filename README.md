@@ -31,4 +31,12 @@ openssl rand -hex 32 > secrets/postgres_password
 chmod 600 secrets/postgres_password
 ```
 
-The `db` service (`postgres:18`) stays on the internal Compose network only — not on `traefik_proxy` and not published on the host. CDP/VNC follow the same rule when added.
+The `db` service (`postgres:18`) stays on the internal Compose network only — not on `traefik_proxy` and not published on the host.
+
+The `browser` service runs Chromium with CDP on the same internal network (`browser:9222`). It is not on `traefik_proxy` and does not publish port 9222 on the host. Persistent agent profile: volume `chrome_profile`. Runtime hardening notes (why `limits-xlarge` instead of `hardened-*`): [`docs/browser-runtime.md`](docs/browser-runtime.md).
+
+```bash
+docker compose build browser
+docker compose run --rm --no-deps browser smoke
+docker compose up -d browser
+```

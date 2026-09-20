@@ -13,7 +13,11 @@ license-files = ["LICENSE"]
 authors = [
     { name = "Enucatl", email = "1423701+Enucatl@users.noreply.github.com" },
 ]
-dependencies = []
+dependencies = [
+    "alembic>=1.14",
+    "psycopg[binary]>=3.2",
+    "sqlalchemy>=2.0",
+]
 
 [dependency-groups]
 dev = [

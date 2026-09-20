@@ -43,11 +43,11 @@ Status values: `todo` · `ready` · `blocked` · `in_progress` · `done` · `can
 
 | ID | Title | Depends | Status | Guide |
 | --- | --- | --- | --- | --- |
-| T006 | Event-sourcing schema and migrations | T003 | ready | [tasks/T006.md](tasks/T006.md) |
+| T006 | Event-sourcing schema and migrations | T003 | done | [tasks/T006.md](tasks/T006.md) |
 | T007 | Artifact store (filesystem, SHA-256 dedupe, Zstd payloads) | T003 | ready | [tasks/T007.md](tasks/T007.md) |
-| T008 | Secret redaction before any audit write | T001 | todo | [tasks/T008.md](tasks/T008.md) |
+| T008 | Secret redaction before any audit write | T001 | ready | [tasks/T008.md](tasks/T008.md) |
 | T009 | Audit event writer with hash chaining | T006, T008 | todo | [tasks/T009.md](tasks/T009.md) |
-| T010 | Agent controller FastAPI: run lifecycle API | T003, T006 | todo | [tasks/T010.md](tasks/T010.md) |
+| T010 | Agent controller FastAPI: run lifecycle API | T003, T006 | ready | [tasks/T010.md](tasks/T010.md) |
 | T011 | WebSocket run progress and live event stream | T010 | todo | [tasks/T011.md](tasks/T011.md) |
 | T012 | Authelia `Remote-User` trust and CSRF/origin hardening | T010, T002 | todo | [tasks/T012.md](tasks/T012.md) |
 | T013 | Browser Use session manager (on-demand Chrome, persistent profile) | T004, T010 | todo | [tasks/T013.md](tasks/T013.md) |

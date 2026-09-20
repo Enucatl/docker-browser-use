@@ -1,9 +1,28 @@
-# Database placeholders
+# Database and migrations
 
 Postgres data lives in the Compose volume `pgdata` (`/var/lib/postgresql` in the
 `db` container). Connection env and the `postgres_password` Docker secret are
 wired in T003.
 
-SQL / Alembic migrations for the audit schema belong in **T006**. Keep this
-directory as a placeholder until that task lands; do not invent the full schema
-here.
+## Schema migrations (Alembic)
+
+Audit / event-sourcing schema lives in SQLAlchemy models under
+`src/browser_use_agent/db/models.py`, with Alembic revisions in `/alembic/versions/`.
+
+**Canonical timeline:** `agent_events` is append-only. Rows are never updated or
+deleted in normal operation (PostgreSQL triggers reject `UPDATE`/`DELETE`). Hash
+chaining columns (`prev_hash`, `event_hash`) are filled by the audit writer (T009).
+Normalized helper tables (`agent_decisions`, `model_calls`, …) support analysis
+without replacing the event stream. Artifact **blobs** are out of band (T007);
+the `artifacts` table stores metadata only.
+
+Apply migrations (compose `db` healthy, `DATABASE_*` set):
+
+```bash
+uv run python -m browser_use_agent.db.migrate
+# or: uv run python -m browser_use_agent.db
+```
+
+Programmatic: `from browser_use_agent.db import upgrade_head; upgrade_head()`.
+
+Override URL for one-shot / tests: `DATABASE_URL=postgresql+psycopg://...`.

@@ -11,6 +11,9 @@ uv run ruff format .
 uv run ruff check .
 ```
 
+Postgres audit schema migrations (Alembic): see [`db/README.md`](db/README.md). Apply with
+`uv run python -m browser_use_agent.db.migrate` when `DATABASE_*` (or `DATABASE_URL`) is set.
+
 Implementation work is tracked in [`task_ledger.md`](task_ledger.md); detailed briefs live under [`tasks/`](tasks/).
 
 ## Compose (homelab)

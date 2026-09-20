@@ -28,6 +28,8 @@ PY
 RUN uv sync --frozen --no-dev --no-install-project --no-editable
 
 COPY src/ src/
+COPY alembic.ini alembic.ini
+COPY alembic/ alembic/
 RUN uv sync --frozen --no-dev --no-editable
 
 # ---- Stage 2: runtime ----
@@ -47,12 +49,15 @@ RUN groupadd --system app \
 
 ENV PYTHONUNBUFFERED=1 \
     VERSION=${VERSION} \
-    PATH="/app/.venv/bin:$PATH"
+    PATH="/app/.venv/bin:$PATH" \
+    BROWSER_USE_ROOT=/app
 
 WORKDIR /app
 
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --from=builder --chown=app:app /app/src /app/src
+COPY --from=builder --chown=app:app /app/alembic.ini /app/alembic.ini
+COPY --from=builder --chown=app:app /app/alembic /app/alembic
 
 USER app
 

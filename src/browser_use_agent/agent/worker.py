@@ -13,6 +13,13 @@ from typing import Any
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from browser_use_agent.agent.approvals import (
+    ApprovalRequest,
+    load_approval_settings,
+)
+from browser_use_agent.agent.approvals import (
+    needs_approval as policy_needs_approval,
+)
 from browser_use_agent.agent.browser_port import BrowserPort, BrowserUsePort
 from browser_use_agent.agent.controls import get_control_hub
 from browser_use_agent.agent.loop import (
@@ -23,7 +30,6 @@ from browser_use_agent.agent.loop import (
     NeedsApprovalHook,
     ScreenshotHook,
     ScreenshotHookWithReason,
-    default_needs_approval,
 )
 from browser_use_agent.audit.browser_actions import BrowserActionWriter
 from browser_use_agent.audit.checkpoints import CheckpointWriter, load_checkpoint_settings
@@ -45,6 +51,7 @@ from browser_use_agent.policy.text_llm import (
     load_text_llm_settings,
 )
 from browser_use_agent.runs.status import TERMINAL_STATUSES, RunStatus
+from browser_use_agent.services import approvals as approval_service
 from browser_use_agent.services.runs import get_run
 
 logger = logging.getLogger(__name__)
@@ -190,7 +197,7 @@ class RunWorker:
         self.jev_factory = jev_factory or default_jev_factory
         self.text_llm_factory = text_llm_factory or default_text_llm_factory
         self.browser_port_factory = browser_port_factory
-        self.needs_approval = needs_approval or default_needs_approval
+        self.needs_approval = needs_approval or policy_needs_approval
         self.checkpoint = checkpoint
         self.screenshot = screenshot
         self._auto_checkpoint = checkpoint is None
@@ -199,6 +206,7 @@ class RunWorker:
         self._semaphore = asyncio.Semaphore(self.settings.max_concurrent_runs)
         self._tasks: dict[uuid.UUID, asyncio.Task[LoopOutcome]] = {}
         self._lock = asyncio.Lock()
+        self._approval_settings = load_approval_settings()
 
     @property
     def active_run_ids(self) -> frozenset[uuid.UUID]:
@@ -326,6 +334,53 @@ class RunWorker:
                 finally:
                     check.close()
 
+            def set_status(status: RunStatus) -> None:
+                """Persist a non-terminal status change from the loop."""
+                row = session.get(Run, run_id)
+                if row is None:
+                    return
+                # Do not clobber an operator cancel that raced the gate.
+                if row.status == RunStatus.CANCELLED.value:
+                    return
+                now = datetime.now(UTC)
+                row.status = status.value
+                row.updated_at = now
+                if status in TERMINAL_STATUSES:
+                    row.finished_at = now
+                session.commit()
+
+            def on_approval_requested(
+                request: ApprovalRequest,
+                event_id: uuid.UUID,
+            ) -> uuid.UUID | None:
+                """Persist a pending ``human_approvals`` row."""
+                row = approval_service.create_pending_approval(
+                    session,
+                    run_id,
+                    event_id=event_id,
+                    reason=request.reason,
+                    metadata={
+                        "kind": request.action_kind.value,
+                        "target_index": request.target_index,
+                        "policy_id": request.policy_id,
+                        **request.metadata,
+                    },
+                )
+                session.commit()
+                return row.id
+
+            def on_approval_finalized(
+                approval_id: uuid.UUID | None,
+                _reason: str,
+            ) -> None:
+                """Fail-closed timeout: mark pending approval denied."""
+                approval_service.mark_approval_timed_out(
+                    session,
+                    run_id,
+                    approval_id=approval_id,
+                )
+                session.commit()
+
             signals = get_control_hub().signals_for(run_id)
             try:
                 signals.bind_loop(asyncio.get_running_loop())
@@ -369,6 +424,10 @@ class RunWorker:
                 adapter=self.adapter,
                 max_steps=self.settings.max_steps,
                 needs_approval=self.needs_approval,
+                approval_timeout_seconds=self._approval_settings.timeout_seconds,
+                set_status=set_status,
+                on_approval_requested=on_approval_requested,
+                on_approval_finalized=on_approval_finalized,
                 checkpoint=checkpoint,
                 screenshot=screenshot,
                 is_cancelled=is_cancelled,
@@ -426,6 +485,14 @@ class RunWorker:
             return
         # Do not clobber an operator pause with a waiting/non-terminal outcome.
         if run.status == RunStatus.PAUSED.value and outcome.status == RunStatus.RUNNING:
+            session.commit()
+            return
+        # Reject API already marked failed; keep finished_at from that path.
+        if (
+            run.status == RunStatus.FAILED.value
+            and outcome.status == RunStatus.FAILED
+            and run.finished_at is not None
+        ):
             session.commit()
             return
         now = datetime.now(UTC)

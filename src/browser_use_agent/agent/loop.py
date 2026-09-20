@@ -16,6 +16,17 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
 
+from browser_use_agent.agent.approvals import (
+    ApprovalContext,
+    ApprovalRequest,
+    ApprovalSettings,
+    invoke_needs_approval,
+    load_approval_settings,
+    wait_for_approval_decision,
+)
+from browser_use_agent.agent.approvals import (
+    needs_approval as policy_needs_approval,
+)
 from browser_use_agent.agent.browser_port import BrowserPort, TypeTextBlockedError
 from browser_use_agent.agent.controls import RunControlSignals, wait_while_paused
 from browser_use_agent.audit.browser_actions import BrowserActionWriter
@@ -35,7 +46,11 @@ from browser_use_agent.security.redaction import redact_for_audit
 
 logger = logging.getLogger(__name__)
 
-NeedsApprovalHook = Callable[[AgentAction], bool]
+# Hook may return bool (legacy), ApprovalRequest, or None; 1- or 2-arg forms.
+NeedsApprovalHook = Callable[..., ApprovalRequest | bool | None]
+StatusSink = Callable[[RunStatus], None]
+ApprovalRequestedHook = Callable[[ApprovalRequest, uuid.UUID], uuid.UUID | None]
+ApprovalFinalizedHook = Callable[[uuid.UUID | None, str], None]
 # force_reason is optional (approval / error / destructive); 3-arg hooks still work
 # when the loop calls without a fourth positional argument.
 CheckpointHook = Callable[
@@ -78,20 +93,6 @@ class AuditAppend(Protocol):
         """Append one audit event."""
 
 
-def default_needs_approval(_action: AgentAction) -> bool:
-    """Return whether an action needs human approval (T021 hook).
-
-    Default is always ``False`` until the approval policy lands.
-
-    Args:
-        _action: Candidate action (ignored).
-
-    Returns:
-        Always ``False``.
-    """
-    return False
-
-
 @dataclass(slots=True)
 class LoopOutcome:
     """Terminal result of one :meth:`AgentLoop.run` invocation.
@@ -123,12 +124,16 @@ class AgentLoop:
         browser_actions: Optional T017 ``browser_actions`` table writer.
         adapter: Observation ↔ Jev mapper.
         max_steps: Hard cap to avoid infinite loops.
-        needs_approval: Hook for T021; defaults to always False.
+        needs_approval: T021 gate; defaults to the conservative policy.
+        approval_timeout_seconds: Fail-closed wait bound for human decisions.
+        set_status: Optional callback to persist ``awaiting_approval`` / running.
+        on_approval_requested: Optional persist hook returning approval row id.
+        on_approval_finalized: Optional hook when timeout closes a pending row.
         checkpoint: Optional T018 hook; skipped when ``None``.
         screenshot: Optional T019 hook; skipped when ``None``.
         is_cancelled: Cooperative cancel check between phases.
         is_paused: Cooperative pause check; when True the loop parks.
-        control_signals: In-process wakeups for pause/resume (T020).
+        control_signals: In-process wakeups for pause/resume/approval (T020/T021).
         consume_step_retry: Returns True once when a step retry was armed.
     """
 
@@ -146,6 +151,10 @@ class AgentLoop:
         browser_actions: BrowserActionWriter | None = None,
         max_steps: int = 50,
         needs_approval: NeedsApprovalHook | None = None,
+        approval_timeout_seconds: float | None = None,
+        set_status: StatusSink | None = None,
+        on_approval_requested: ApprovalRequestedHook | None = None,
+        on_approval_finalized: ApprovalFinalizedHook | None = None,
         checkpoint: CheckpointHook | CheckpointHookWithReason | None = None,
         screenshot: ScreenshotHook | ScreenshotHookWithReason | None = None,
         is_cancelled: CancelCheck | None = None,
@@ -167,7 +176,11 @@ class AgentLoop:
             model_calls: Optional normalized model-call writer (T017).
             browser_actions: Optional normalized browser-action writer (T017).
             max_steps: Maximum observe/decide/execute iterations.
-            needs_approval: Approval gate hook (default always False).
+            needs_approval: Approval gate hook (default: conservative policy).
+            approval_timeout_seconds: Override fail-closed wait bound.
+            set_status: Optional run status persistence callback.
+            on_approval_requested: Optional ``human_approvals`` insert hook.
+            on_approval_finalized: Optional timeout finalizer for pending rows.
             checkpoint: Optional checkpoint writer (T018). May accept an optional
                 fourth ``force_reason`` argument for approval/error boundaries.
             screenshot: Optional screenshot writer (T019). Same call shape as
@@ -188,7 +201,16 @@ class AgentLoop:
         self.browser_actions = browser_actions
         self.adapter = adapter if adapter is not None else JevAdapter()
         self.max_steps = max(1, max_steps)
-        self.needs_approval = needs_approval or default_needs_approval
+        self.needs_approval = needs_approval or policy_needs_approval
+        settings = load_approval_settings()
+        self.approval_timeout_seconds = (
+            approval_timeout_seconds
+            if approval_timeout_seconds is not None
+            else settings.timeout_seconds
+        )
+        self.set_status = set_status
+        self.on_approval_requested = on_approval_requested
+        self.on_approval_finalized = on_approval_finalized
         self.checkpoint = checkpoint
         self.screenshot = screenshot
         self.is_cancelled = is_cancelled
@@ -197,6 +219,7 @@ class AgentLoop:
         self.consume_step_retry = consume_step_retry
         self._commit = commit
         self._history: list[str] = []
+        self._approval_settings: ApprovalSettings = settings
 
     async def run(self) -> LoopOutcome:
         """Run the control loop until DONE, error, cancel, or approval pause.
@@ -396,27 +419,105 @@ class AgentLoop:
         )
         self._flush()
 
-        if self.needs_approval(action):
+        approval_req = invoke_needs_approval(
+            self.needs_approval,
+            action,
+            ApprovalContext(
+                observation=observation,
+                goal=self.goal,
+                url=observation.url or None,
+            ),
+        )
+        if approval_req is not None:
             await self._maybe_checkpoint(step_id, observation, force_reason="approval")
             await self._maybe_screenshot(step_id, observation, force_reason="approval")
-            self.audit.append(
+            requested_event = self.audit.append(
                 self.run_id,
                 "approval_requested",
                 {
                     "kind": action.kind.value,
                     "target_index": action.target_index,
                     "confidence": action.confidence,
+                    "reason": approval_req.reason,
+                    "policy_id": approval_req.policy_id,
+                    "timeout_seconds": self.approval_timeout_seconds,
+                    **approval_req.metadata,
                 },
                 actor="agent",
                 step_id=step_id,
                 url=observation.url or None,
             )
             self._flush()
-            return LoopOutcome(
-                status=RunStatus.AWAITING_APPROVAL,
-                message="needs_approval",
-                last_step_id=step_id,
+
+            approval_id: uuid.UUID | None = None
+            if self.on_approval_requested is not None:
+                approval_id = self.on_approval_requested(approval_req, requested_event.id)
+
+            if self.set_status is not None:
+                self.set_status(RunStatus.AWAITING_APPROVAL)
+            self._flush()
+
+            decision = await wait_for_approval_decision(
+                signals=self.control_signals,
+                is_cancelled=self.is_cancelled or (lambda: False),
+                timeout_seconds=self.approval_timeout_seconds,
             )
+
+            if decision == "cancelled":
+                self.audit.append(
+                    self.run_id,
+                    "run_cancelled",
+                    {"reason": "cooperative_cancel_while_awaiting_approval"},
+                    actor="system",
+                    step_id=step_id,
+                )
+                self._flush()
+                return LoopOutcome(
+                    status=RunStatus.CANCELLED,
+                    message="cancelled",
+                    steps_completed=step_number - 1,
+                    last_step_id=step_id,
+                )
+
+            if decision == "denied":
+                # API reject path already audited ``approval_denied`` + failed the run.
+                return LoopOutcome(
+                    status=RunStatus.FAILED,
+                    message="approval_rejected",
+                    steps_completed=step_number - 1,
+                    last_step_id=step_id,
+                )
+
+            if decision == "timeout":
+                if self.on_approval_finalized is not None:
+                    self.on_approval_finalized(approval_id, "timeout")
+                self.audit.append(
+                    self.run_id,
+                    "approval_timeout",
+                    {
+                        "kind": action.kind.value,
+                        "reason": approval_req.reason,
+                        "timeout_seconds": self.approval_timeout_seconds,
+                        "approval_id": str(approval_id) if approval_id else None,
+                        "fail_closed": True,
+                    },
+                    actor="system",
+                    step_id=step_id,
+                )
+                self._flush()
+                if self.set_status is not None:
+                    self.set_status(RunStatus.FAILED)
+                return LoopOutcome(
+                    status=RunStatus.FAILED,
+                    message="approval_timeout",
+                    steps_completed=step_number - 1,
+                    last_step_id=step_id,
+                )
+
+            # granted — continue to execute (API already audited approval_granted).
+            if self.set_status is not None:
+                self.set_status(RunStatus.RUNNING)
+            self._flush()
 
         gate = await self._control_gate(
             reason="before_execute",

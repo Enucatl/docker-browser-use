@@ -1,5 +1,12 @@
 """Domain services for the agent controller."""
 
+from browser_use_agent.services.approvals import (
+    approve_run,
+    create_pending_approval,
+    get_pending_approval,
+    mark_approval_timed_out,
+    reject_run,
+)
 from browser_use_agent.services.runs import (
     RunControlError,
     RunNotFoundError,
@@ -16,11 +23,16 @@ from browser_use_agent.services.runs import (
 __all__ = [
     "RunControlError",
     "RunNotFoundError",
+    "approve_run",
     "cancel_run",
+    "create_pending_approval",
     "create_run",
+    "get_pending_approval",
     "get_run",
     "list_runs",
+    "mark_approval_timed_out",
     "pause_run",
+    "reject_run",
     "resume_run",
     "retry_run",
     "stop_run",

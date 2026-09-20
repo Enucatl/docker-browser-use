@@ -38,13 +38,19 @@ class RunControlSignals:
     """Per-run in-process wakeups and one-shot retry arming.
 
     Attributes:
-        wake: Set when the run leaves a parked wait (resume, cancel, or retry).
+        wake: Set when the run leaves a parked wait (resume, cancel, retry, or
+            approval decision).
         step_retry_armed: When True, the next failed execute re-observes/decides
             instead of failing the run; cleared when consumed.
+        approval_decision: Pending grant/deny from the approvals API (T021);
+            consumed by the parked approval waiter.
+        pending_approval_id: Optional ``human_approvals.id`` for the open gate.
     """
 
     wake: asyncio.Event = field(default_factory=asyncio.Event)
     step_retry_armed: bool = False
+    approval_decision: str | None = None
+    pending_approval_id: uuid.UUID | None = None
     _loop: asyncio.AbstractEventLoop | None = field(default=None, repr=False)
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
@@ -80,6 +86,25 @@ class RunControlSignals:
         armed = self.step_retry_armed
         self.step_retry_armed = False
         return armed
+
+    def set_approval_decision(self, decision: str) -> None:
+        """Record an approve/reject decision and wake the approval waiter.
+
+        Args:
+            decision: ``granted`` or ``denied``.
+        """
+        self.approval_decision = decision
+        self.notify()
+
+    def consume_approval_decision(self) -> str | None:
+        """Return and clear a pending approval decision.
+
+        Returns:
+            ``granted`` / ``denied``, or ``None`` when none is pending.
+        """
+        decision = self.approval_decision
+        self.approval_decision = None
+        return decision
 
 
 class RunControlHub:
@@ -140,6 +165,15 @@ class RunControlHub:
             run_id: Run to arm.
         """
         self.signals_for(run_id).arm_step_retry()
+
+    def set_approval_decision(self, run_id: uuid.UUID, decision: str) -> None:
+        """Record approve/reject for ``run_id`` and wake the waiter.
+
+        Args:
+            run_id: Run awaiting approval.
+            decision: ``granted`` or ``denied``.
+        """
+        self.signals_for(run_id).set_approval_decision(decision)
 
 
 _hub = RunControlHub()

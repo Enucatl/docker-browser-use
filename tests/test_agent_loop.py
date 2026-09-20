@@ -11,8 +11,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from browser_use_agent.agent.approvals import default_needs_approval
 from browser_use_agent.agent.browser_port import FakeBrowserPort, TypeTextBlockedError
-from browser_use_agent.agent.loop import AgentLoop, default_needs_approval
+from browser_use_agent.agent.loop import AgentLoop
 from browser_use_agent.agent.worker import RunWorker, RunWorkerSettings
 from browser_use_agent.policy.actions import (
     ActionKind,
@@ -275,7 +276,7 @@ def test_type_text_fail_closed_without_text_llm() -> None:
 
 
 def test_needs_approval_hook_defaults_false_and_can_pause() -> None:
-    """needs_approval defaults to False; a custom hook pauses before execute."""
+    """DONE never needs approval; a custom hook parks until granted."""
     assert (
         default_needs_approval(
             AgentAction(kind=ActionKind.DONE, params=ActionParams(message="x")),
@@ -284,8 +285,13 @@ def test_needs_approval_hook_defaults_false_and_can_pause() -> None:
     )
 
     async def _run() -> None:
+        from browser_use_agent.agent.controls import get_control_hub, reset_control_hub_for_tests
+
+        reset_control_hub_for_tests()
         run_id = uuid.uuid4()
         audit = RecordingAuditWriter()
+        signals = get_control_hub().signals_for(run_id)
+        signals.bind_loop(asyncio.get_running_loop())
         browser = FakeBrowserPort([_obs()])
         jev = FakeJevClient(
             [
@@ -294,9 +300,19 @@ def test_needs_approval_hook_defaults_false_and_can_pause() -> None:
                     navigate_url="https://example.com/next",
                     confidence=0.9,
                 ),
+                FakeDecision(operation="DONE", done_message="ok", confidence=0.99),
             ],
         )
 
+        async def grant_soon() -> None:
+            deadline = asyncio.get_running_loop().time() + 2.0
+            while asyncio.get_running_loop().time() < deadline:
+                if "approval_requested" in audit.types():
+                    break
+                await asyncio.sleep(0.01)
+            signals.set_approval_decision("granted")
+
+        grant_task = asyncio.create_task(grant_soon())
         outcome = await AgentLoop(
             run_id=run_id,
             goal="Navigate carefully",
@@ -304,12 +320,16 @@ def test_needs_approval_hook_defaults_false_and_can_pause() -> None:
             jev=jev,
             audit=audit,
             needs_approval=lambda action: action.kind == ActionKind.NAVIGATE,
+            approval_timeout_seconds=5.0,
+            control_signals=signals,
+            is_cancelled=lambda: False,
+            max_steps=10,
         ).run()
+        await grant_task
 
-        assert outcome.status == RunStatus.AWAITING_APPROVAL
+        assert outcome.status == RunStatus.SUCCEEDED
         assert "approval_requested" in audit.types()
-        assert "action_requested" not in audit.types()
-        assert browser.executed == []
+        assert any(a.kind == ActionKind.NAVIGATE for a in browser.executed)
 
     asyncio.run(_run())
 

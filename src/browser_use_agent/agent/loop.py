@@ -18,6 +18,7 @@ from typing import Any, Protocol
 from browser_use_agent.agent.browser_port import BrowserPort, TypeTextBlockedError
 from browser_use_agent.audit.browser_actions import BrowserActionWriter
 from browser_use_agent.audit.model_calls import ModelCallWriter
+from browser_use_agent.audit.screenshots import is_destructive_action
 from browser_use_agent.policy.actions import (
     ActionKind,
     AgentAction,
@@ -33,7 +34,7 @@ from browser_use_agent.security.redaction import redact_for_audit
 logger = logging.getLogger(__name__)
 
 NeedsApprovalHook = Callable[[AgentAction], bool]
-# force_reason is optional (approval / error boundaries); 3-arg hooks still work
+# force_reason is optional (approval / error / destructive); 3-arg hooks still work
 # when the loop calls without a fourth positional argument.
 CheckpointHook = Callable[
     [uuid.UUID, uuid.UUID, BrowserObservation],
@@ -43,6 +44,8 @@ CheckpointHookWithReason = Callable[
     [uuid.UUID, uuid.UUID, BrowserObservation, str | None],
     Awaitable[None] | None,
 ]
+ScreenshotHook = CheckpointHook
+ScreenshotHookWithReason = CheckpointHookWithReason
 CancelCheck = Callable[[], bool | Awaitable[bool]]
 
 
@@ -118,6 +121,7 @@ class AgentLoop:
         max_steps: Hard cap to avoid infinite loops.
         needs_approval: Hook for T021; defaults to always False.
         checkpoint: Optional T018 hook; skipped when ``None``.
+        screenshot: Optional T019 hook; skipped when ``None``.
         is_cancelled: Cooperative cancel check between phases.
     """
 
@@ -136,6 +140,7 @@ class AgentLoop:
         max_steps: int = 50,
         needs_approval: NeedsApprovalHook | None = None,
         checkpoint: CheckpointHook | CheckpointHookWithReason | None = None,
+        screenshot: ScreenshotHook | ScreenshotHookWithReason | None = None,
         is_cancelled: CancelCheck | None = None,
         commit: Callable[[], None] | None = None,
     ) -> None:
@@ -155,6 +160,8 @@ class AgentLoop:
             needs_approval: Approval gate hook (default always False).
             checkpoint: Optional checkpoint writer (T018). May accept an optional
                 fourth ``force_reason`` argument for approval/error boundaries.
+            screenshot: Optional screenshot writer (T019). Same call shape as
+                ``checkpoint``; forced on approval/error/destructive actions.
             is_cancelled: Returns True when the run should stop cooperatively.
             commit: Optional callback after each audit batch (e.g. session.commit).
         """
@@ -170,6 +177,7 @@ class AgentLoop:
         self.max_steps = max(1, max_steps)
         self.needs_approval = needs_approval or default_needs_approval
         self.checkpoint = checkpoint
+        self.screenshot = screenshot
         self.is_cancelled = is_cancelled
         self._commit = commit
         self._history: list[str] = []
@@ -332,6 +340,7 @@ class AgentLoop:
         self._flush()
 
         await self._maybe_checkpoint(step_id, observation)
+        await self._maybe_screenshot(step_id, observation)
 
         if await self._cancelled():
             self.audit.append(
@@ -385,6 +394,7 @@ class AgentLoop:
 
         if self.needs_approval(action):
             await self._maybe_checkpoint(step_id, observation, force_reason="approval")
+            await self._maybe_screenshot(step_id, observation, force_reason="approval")
             self.audit.append(
                 self.run_id,
                 "approval_requested",
@@ -478,8 +488,15 @@ class AgentLoop:
             )
             self._flush()
             self._history.append(f"{action.kind.value}:{result.message or 'ok'}")
+            if is_destructive_action(action.kind):
+                await self._maybe_screenshot(
+                    step_id,
+                    observation,
+                    force_reason="destructive",
+                )
         else:
             await self._maybe_checkpoint(step_id, observation, force_reason="error")
+            await self._maybe_screenshot(step_id, observation, force_reason="error")
             failed_event = self.audit.append(
                 self.run_id,
                 "action_failed",
@@ -792,6 +809,34 @@ class AgentLoop:
         if self.checkpoint is None:
             return
         hook = self.checkpoint
+        if force_reason is not None:
+            try:
+                maybe = hook(self.run_id, step_id, observation, force_reason)  # type: ignore[call-arg]
+            except TypeError:
+                maybe = hook(self.run_id, step_id, observation)
+        else:
+            maybe = hook(self.run_id, step_id, observation)
+        if maybe is not None:
+            await maybe
+
+    async def _maybe_screenshot(
+        self,
+        step_id: uuid.UUID,
+        observation: BrowserObservation,
+        *,
+        force_reason: str | None = None,
+    ) -> None:
+        """Invoke the optional screenshot hook when configured.
+
+        Args:
+            step_id: Step grouping id.
+            observation: Latest observation.
+            force_reason: Optional force reason (``approval``, ``error``,
+                ``destructive``).
+        """
+        if self.screenshot is None:
+            return
+        hook = self.screenshot
         if force_reason is not None:
             try:
                 maybe = hook(self.run_id, step_id, observation, force_reason)  # type: ignore[call-arg]

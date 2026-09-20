@@ -13,6 +13,7 @@ from browser_use_agent.agent.loop import (
     CheckpointHook,
     LoopOutcome,
     NeedsApprovalHook,
+    ScreenshotHook,
     default_needs_approval,
 )
 from browser_use_agent.agent.worker import RunWorker, RunWorkerSettings, load_run_worker_settings
@@ -29,6 +30,7 @@ __all__ = [
     "NeedsApprovalHook",
     "RunWorker",
     "RunWorkerSettings",
+    "ScreenshotHook",
     "TypeTextBlockedError",
     "default_needs_approval",
     "load_run_worker_settings",

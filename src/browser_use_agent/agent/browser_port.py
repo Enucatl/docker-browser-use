@@ -62,6 +62,13 @@ class BrowserPort(Protocol):
             Execution result (success, done, or error).
         """
 
+    async def screenshot(self) -> bytes:
+        """Capture a viewport screenshot as raw image bytes.
+
+        Returns:
+            PNG (or other) image bytes for T019 encoding / artifact storage.
+        """
+
 
 class FakeBrowserPort:
     """Scripted browser for unit tests (no Chrome).
@@ -75,6 +82,7 @@ class FakeBrowserPort:
         fail_kinds: Action kinds that should fail closed when executed.
         type_text_stub: Optional text returned for ``TYPE_TEXT`` when params
             lack text (tests only; production defaults to fail-closed).
+        screenshot_bytes: Fake image bytes returned by :meth:`screenshot`.
     """
 
     def __init__(
@@ -83,6 +91,7 @@ class FakeBrowserPort:
         *,
         type_text_stub: str | None = None,
         fail_kinds: set[ActionKind] | None = None,
+        screenshot_bytes: bytes | None = None,
     ) -> None:
         """Create a fake browser port.
 
@@ -90,6 +99,7 @@ class FakeBrowserPort:
             observations: Ordered observations; defaults to a blank page.
             type_text_stub: Optional stub text for ``TYPE_TEXT``.
             fail_kinds: Kinds that return a failed execution result.
+            screenshot_bytes: Optional fake screenshot payload (T019 tests).
         """
         if observations:
             self.observations = list(observations)
@@ -101,6 +111,7 @@ class FakeBrowserPort:
         self.executed: list[AgentAction] = []
         self.type_text_stub = type_text_stub
         self.fail_kinds = set(fail_kinds or ())
+        self.screenshot_bytes = screenshot_bytes if screenshot_bytes is not None else b""
 
     async def observe(self) -> BrowserObservation:
         """Return the next scripted observation (or the last one).
@@ -176,6 +187,14 @@ class FakeBrowserPort:
             },
         )
 
+    async def screenshot(self) -> bytes:
+        """Return configured fake screenshot bytes (no Chrome).
+
+        Returns:
+            Bytes from ``screenshot_bytes`` (may be empty when unset).
+        """
+        return self.screenshot_bytes
+
 
 class BrowserUsePort:
     """Observe / execute via a live :class:`~browser_use.BrowserSession`.
@@ -223,6 +242,20 @@ class BrowserUsePort:
             cached=False,
         )
         return observation_from_browser_state(summary)
+
+    async def screenshot(self) -> bytes:
+        """Capture a PNG viewport screenshot via Browser Use / CDP.
+
+        Encoding to WebP/JPEG is handled by the T019 screenshot writer so unit
+        tests can inject fake bytes without Chrome.
+
+        Returns:
+            Raw PNG image bytes from ``BrowserSession.take_screenshot``.
+        """
+        data = await self.session.take_screenshot(format="png")
+        if not isinstance(data, (bytes, bytearray)):
+            raise TypeError(f"take_screenshot returned {type(data)!r}, expected bytes")
+        return bytes(data)
 
     async def execute(self, action: AgentAction) -> ActionExecutionResult:
         """Dispatch the action through Browser Use Tools.

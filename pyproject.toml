@@ -18,6 +18,7 @@ dependencies = [
     "browser-use>=0.13.0",
     "fastapi>=0.141.1",
     "niquests>=3.14.0",
+    "pillow>=11.0",
     "psycopg[binary]>=3.2",
     "sqlalchemy>=2.0",
     "uvicorn[standard]>=0.53.0",

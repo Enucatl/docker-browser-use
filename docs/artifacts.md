@@ -5,7 +5,8 @@ a Docker volume. Postgres keeps **metadata only** in the `artifacts` table
 (schema from T006); blobs are content-addressed on disk.
 
 Browser-state checkpoint policy (when to write, env knobs, payload schema) is
-documented in [checkpoints.md](checkpoints.md) (T018).
+documented in [checkpoints.md](checkpoints.md) (T018). Screenshot policy
+(WebP/JPEG, event-driven capture) is in [screenshots.md](screenshots.md) (T019).
 
 ## Layout
 

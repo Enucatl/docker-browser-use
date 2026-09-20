@@ -20,11 +20,14 @@ from browser_use_agent.agent.loop import (
     CheckpointHookWithReason,
     LoopOutcome,
     NeedsApprovalHook,
+    ScreenshotHook,
+    ScreenshotHookWithReason,
     default_needs_approval,
 )
 from browser_use_agent.audit.browser_actions import BrowserActionWriter
 from browser_use_agent.audit.checkpoints import CheckpointWriter, load_checkpoint_settings
 from browser_use_agent.audit.model_calls import ModelCallWriter
+from browser_use_agent.audit.screenshots import ScreenshotWriter, load_screenshot_settings
 from browser_use_agent.audit.writer import AuditWriter
 from browser_use_agent.browser.session import BrowserSessionManager
 from browser_use_agent.db.models import Run
@@ -143,6 +146,7 @@ class RunWorker:
         text_llm_factory: Builds an optional text LLM client per run (T016).
         needs_approval: Approval hook (default False).
         checkpoint: Optional T018 checkpoint hook.
+        screenshot: Optional T019 screenshot hook.
     """
 
     def __init__(
@@ -156,6 +160,7 @@ class RunWorker:
         browser_port_factory: Callable[[uuid.UUID, Session], BrowserPort] | None = None,
         needs_approval: NeedsApprovalHook | None = None,
         checkpoint: CheckpointHook | CheckpointHookWithReason | None = None,
+        screenshot: ScreenshotHook | ScreenshotHookWithReason | None = None,
         adapter: JevAdapter | None = None,
     ) -> None:
         """Create a run worker.
@@ -172,6 +177,9 @@ class RunWorker:
             checkpoint: Optional checkpoint hook; when omitted, a
                 :class:`CheckpointWriter` is built per run when the artifact
                 store is available.
+            screenshot: Optional screenshot hook; when omitted, a
+                :class:`ScreenshotWriter` is built per run when the artifact
+                store is available.
             adapter: Optional shared Jev adapter.
         """
         self.settings = settings if settings is not None else load_run_worker_settings()
@@ -182,7 +190,9 @@ class RunWorker:
         self.browser_port_factory = browser_port_factory
         self.needs_approval = needs_approval or default_needs_approval
         self.checkpoint = checkpoint
+        self.screenshot = screenshot
         self._auto_checkpoint = checkpoint is None
+        self._auto_screenshot = screenshot is None
         self.adapter = adapter if adapter is not None else JevAdapter()
         self._semaphore = asyncio.Semaphore(self.settings.max_concurrent_runs)
         self._tasks: dict[uuid.UUID, asyncio.Task[LoopOutcome]] = {}
@@ -315,6 +325,19 @@ class RunWorker:
                         commit=session.commit,
                     )
 
+            screenshot = self.screenshot
+            if screenshot is None and self._auto_screenshot and store is not None:
+                ss_settings = load_screenshot_settings()
+                if ss_settings.enabled:
+                    screenshot = ScreenshotWriter(
+                        audit,
+                        store,
+                        capture=browser.screenshot,
+                        session=session,
+                        settings=ss_settings,
+                        commit=session.commit,
+                    )
+
             loop = AgentLoop(
                 run_id=run_id,
                 goal=goal,
@@ -328,6 +351,7 @@ class RunWorker:
                 max_steps=self.settings.max_steps,
                 needs_approval=self.needs_approval,
                 checkpoint=checkpoint,
+                screenshot=screenshot,
                 is_cancelled=is_cancelled,
                 commit=session.commit,
             )

@@ -24,6 +24,7 @@ from browser_use_agent.browser.session import BrowserSessionManager
 from browser_use_agent.config import AppSettings, load_app_settings
 from browser_use_agent.db.engine import create_engine_from_settings
 from browser_use_agent.db.models import AgentEvent
+from browser_use_agent.web.routes import mount_web_ui
 
 
 def _bridge_audit_to_event_bus(event: AgentEvent) -> None:
@@ -104,6 +105,7 @@ def create_app(
     app.include_router(approvals_router)
     app.include_router(takeover_router)
     app.include_router(ws_router)
+    mount_web_ui(app)
 
     # Middleware is applied outermost-last: TrustedHost → CSRF → Remote-User → routes.
     app.add_middleware(RemoteUserAuthMiddleware, auth_required=resolved.auth_required)

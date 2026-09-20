@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}History · browser-use{% endblock %}
+{% block content %}
+<section class="panel">
+  <h1>Run history</h1>
+  {% if runs %}
+  <ul class="run-list">
+    {% for run in runs %}
+    <li>
+      <a href="/runs/{{ run.id }}">
+        <span class="status status-{{ run.status }}">{{ run.status }}</span>
+        <span class="goal">{{ run.goal }}</span>
+        <span class="muted">{{ run.created_at }}</span>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">No runs yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

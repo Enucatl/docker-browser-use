@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Run {{ run.id[:8] }} · browser-use{% endblock %}
+{% block content %}
+<section class="panel run-header">
+  <p class="muted mono">{{ run.id }}</p>
+  <h1>{{ run.goal }}</h1>
+  <p>
+    Status:
+    <strong id="run-status" class="status status-{{ run.status }}">{{ run.status }}</strong>
+    · Cost: <span id="run-cost" class="muted">—</span>
+  </p>
+  <p class="muted">
+    Created {{ run.created_at }}
+    {% if run.started_at %} · Started {{ run.started_at }}{% endif %}
+    {% if run.finished_at %} · Finished {{ run.finished_at }}{% endif %}
+  </p>
+</section>
+
+<section class="panel">
+  <h2>Controls</h2>
+  <div class="btn-row">
+    {% if run.can_pause %}
+    <form method="post" action="/runs/{{ run.id }}/pause"><button type="submit">Pause</button></form>
+    {% endif %}
+    {% if run.can_resume %}
+    <form method="post" action="/runs/{{ run.id }}/resume"><button type="submit">Resume</button></form>
+    {% endif %}
+    {% if run.can_cancel %}
+    <form method="post" action="/runs/{{ run.id }}/cancel"><button type="submit" class="danger">Cancel</button></form>
+    {% endif %}
+    {% if run.terminal and run.status == 'failed' %}
+    <form method="post" action="/runs/{{ run.id }}/retry"><button type="submit">Retry</button></form>
+    {% endif %}
+  </div>
+  <div class="btn-row links">
+    <a class="button" href="{{ vnc_url }}" target="_blank" rel="noopener">Open live view (/vnc)</a>
+    {% if run.can_take_control %}
+    <form method="post" action="/runs/{{ run.id }}/take-control">
+      <button type="submit">Take control</button>
+    </form>
+    {% endif %}
+    {% if run.can_release_control %}
+    <form method="post" action="/runs/{{ run.id }}/release-control">
+      <button type="submit">Release control</button>
+    </form>
+    {% endif %}
+  </div>
+</section>
+
+{% if run.awaiting_approval and run.pending_approval %}
+<section class="panel approval" id="approval-panel">
+  <h2>Approval required</h2>
+  <p>{{ run.pending_approval.reason or "A high-impact action needs your decision." }}</p>
+  {% if run.pending_approval.metadata %}
+  <pre class="payload">{{ run.pending_approval.metadata }}</pre>
+  {% endif %}
+  <form method="post" action="/runs/{{ run.id }}/approve" class="stack">
+    <label for="approve-reason">Note (optional)</label>
+    <input id="approve-reason" name="reason" type="text" placeholder="Looks correct">
+    <div class="btn-row">
+      <button type="submit">Approve</button>
+    </div>
+  </form>
+  <form method="post" action="/runs/{{ run.id }}/reject" class="stack">
+    <label for="reject-reason">Reject reason (optional)</label>
+    <input id="reject-reason" name="reason" type="text" placeholder="Do not proceed">
+    <div class="btn-row">
+      <button type="submit" class="danger">Reject</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+
+<section class="panel">
+  <h2>Live events</h2>
+  <p class="muted" id="ws-state">Connecting…</p>
+  <p id="current-decision" class="decision" hidden></p>
+  <ol id="event-list" class="event-list" reversed>
+    {% for event in events %}
+    <li data-seq="{{ event.seq }}">
+      <span class="seq">#{{ event.seq }}</span>
+      <span class="etype">{{ event.event_type }}</span>
+      <span class="muted">{{ event.occurred_at }}</span>
+      {% if event.payload %}
+      <pre class="payload">{{ event.payload }}</pre>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.BROWSER_USE_RUN = {
+    id: {{ run.id|tojson }},
+    status: {{ run.status|tojson }},
+    isActive: {{ run.is_active|tojson }},
+  };
+</script>
+<script src="/static/run.js" defer></script>
+{% endblock %}

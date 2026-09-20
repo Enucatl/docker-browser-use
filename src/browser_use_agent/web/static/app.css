@@ -1,0 +1,259 @@
+/* Plain operator control panel — functional, not decorative. */
+
+:root {
+  --bg: #f6f5f2;
+  --fg: #1a1a1a;
+  --muted: #5c5c5c;
+  --border: #cfcbc3;
+  --panel: #fffdf8;
+  --accent: #245b4e;
+  --danger: #8b2e2e;
+  --ok: #2d6a3e;
+  --warn: #8a6d1d;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  background: linear-gradient(180deg, #ebe7df 0%, var(--bg) 40%);
+  color: var(--fg);
+  line-height: 1.45;
+  min-height: 100vh;
+}
+
+a {
+  color: var(--accent);
+}
+
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 253, 248, 0.9);
+}
+
+.top nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: baseline;
+}
+
+.brand {
+  font-weight: 700;
+  color: var(--fg);
+  text-decoration: none;
+  margin-right: 0.5rem;
+}
+
+.who {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+main {
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  padding: 1rem 1.1rem;
+  margin-bottom: 1rem;
+}
+
+.panel h1,
+.panel h2 {
+  margin-top: 0;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.mono {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+label {
+  font-weight: 600;
+}
+
+textarea,
+input[type="text"] {
+  width: 100%;
+  padding: 0.6rem;
+  border: 1px solid var(--border);
+  background: #fff;
+  font: inherit;
+}
+
+button,
+.button {
+  display: inline-block;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  text-align: center;
+}
+
+button.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.run-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.run-list li a {
+  display: grid;
+  grid-template-columns: 8.5rem 1fr;
+  gap: 0.25rem 0.75rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--border);
+  text-decoration: none;
+  color: inherit;
+}
+
+.run-list .goal {
+  grid-column: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-list .muted {
+  grid-column: 2;
+  font-size: 0.85rem;
+}
+
+.status {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+}
+
+.status-running,
+.status-queued {
+  color: var(--ok);
+}
+
+.status-paused,
+.status-awaiting_approval,
+.status-awaiting_human {
+  color: var(--warn);
+}
+
+.status-failed,
+.status-cancelled {
+  color: var(--danger);
+}
+
+.status-succeeded {
+  color: var(--ok);
+}
+
+.banner.error {
+  background: #f8e8e8;
+  border: 1px solid #e0b4b4;
+  color: var(--danger);
+  padding: 0.6rem 0.8rem;
+}
+
+.event-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 28rem;
+  overflow: auto;
+}
+
+.event-list li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.event-list .seq {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  margin-right: 0.4rem;
+  color: var(--muted);
+}
+
+.event-list .etype {
+  font-weight: 600;
+}
+
+.payload {
+  margin: 0.35rem 0 0;
+  padding: 0.4rem;
+  background: #f0ece4;
+  border: 1px solid var(--border);
+  font-size: 0.8rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.decision {
+  padding: 0.5rem 0.7rem;
+  background: #eef4f1;
+  border: 1px solid var(--border);
+}
+
+.approval {
+  border-color: #c9a227;
+  background: #fff9e8;
+}
+
+@media (max-width: 600px) {
+  .run-list li a {
+    grid-template-columns: 1fr;
+  }
+
+  .run-list .goal,
+  .run-list .muted {
+    grid-column: 1;
+  }
+
+  button,
+  .button {
+    width: 100%;
+  }
+
+  .btn-row form {
+    flex: 1 1 100%;
+  }
+}

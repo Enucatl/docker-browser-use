@@ -61,7 +61,7 @@ Status values: `todo` · `ready` · `blocked` · `in_progress` · `done` · `can
 | T021 | Human approval gates for high-impact actions | T011, T015, T020 | done | [tasks/T021.md](tasks/T021.md) |
 | T022 | Live agent Chrome view (Xvfb + noVNC) behind Traefik/Authelia | T004, T013, T012 | done | [tasks/T022.md](tasks/T022.md) |
 | T023 | Take-control / human-in-the-loop VNC handoff | T022, T020 | done | [tasks/T023.md](tasks/T023.md) |
-| T024 | Minimal Agent Web UI (run, watch, pause, approve, history) | T011, T012, T020, T021 | ready | [tasks/T024.md](tasks/T024.md) |
+| T024 | Minimal Agent Web UI (run, watch, pause, approve, history) | T011, T012, T020, T021 | done | [tasks/T024.md](tasks/T024.md) |
 | T025 | End-to-end MVP smoke path and operator README | T015–T024 | todo | [tasks/T025.md](tasks/T025.md) |
 
 ## Phase 2 — Secrets, policies, observability
@@ -71,9 +71,9 @@ Status values: `todo` · `ready` · `blocked` · `in_progress` · `done` · `can
 | T026 | Install Bitwarden into the persistent Chrome profile | T013 | ready | [tasks/T026.md](tasks/T026.md) |
 | T027 | Explicit Bitwarden actions (`LOGIN` / `IDENTITY` / `CARD`) | T015, T026, T008 | todo | [tasks/T027.md](tasks/T027.md) |
 | T028 | Richer approval policy engine (rules + UI reasons) | T021 | ready | [tasks/T028.md](tasks/T028.md) |
-| T029 | Cost entries and simple cost dashboard API/UI | T017, T024 | todo | [tasks/T029.md](tasks/T029.md) |
+| T029 | Cost entries and simple cost dashboard API/UI | T017, T024 | ready | [tasks/T029.md](tasks/T029.md) |
 | T030 | OpenTelemetry instrumentation alongside Postgres audit | T015 | ready | [tasks/T030.md](tasks/T030.md) |
-| T031 | Multi-profile support (Personal / Work / Testing) | T013, T024 | todo | [tasks/T031.md](tasks/T031.md) |
+| T031 | Multi-profile support (Personal / Work / Testing) | T013, T024 | ready | [tasks/T031.md](tasks/T031.md) |
 
 ## Phase 3 — Evaluation and storage maturity
 

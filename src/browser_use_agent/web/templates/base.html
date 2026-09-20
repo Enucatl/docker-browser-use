@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}browser-use{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header class="top">
+    <nav>
+      <a class="brand" href="/">browser-use</a>
+      <a href="/">New run</a>
+      <a href="/history">History</a>
+      <a href="/vnc/" target="_blank" rel="noopener">Live view</a>
+    </nav>
+    <p class="who">{{ user.username }}{% if user.name %} · {{ user.name }}{% endif %}</p>
+  </header>
+  <main>
+    {% if error %}
+    <p class="banner error" role="alert">{{ error }}</p>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

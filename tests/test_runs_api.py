@@ -120,6 +120,8 @@ def api_client(postgres_url: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[T
 
     settings = AppSettings(host="127.0.0.1", port=8000, database=None)
     app = create_app(settings, engine=engine)
+    # Avoid starting the Browser Use worker in lifecycle API tests (no CDP).
+    app.state.run_worker = None
     with TestClient(app) as client:
         yield client
 

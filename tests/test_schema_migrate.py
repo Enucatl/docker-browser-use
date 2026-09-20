@@ -138,7 +138,7 @@ def test_upgrade_head_creates_schema(postgres_url: str, monkeypatch: pytest.Monk
 
         with engine.connect() as conn:
             version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            assert version == "0001_event_sourcing"
+            assert version == "0002_tracing_fields"
 
             # Append-only: INSERT works; UPDATE/DELETE are rejected by triggers.
             run_id = uuid.uuid4()

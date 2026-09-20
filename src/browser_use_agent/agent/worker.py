@@ -21,6 +21,8 @@ from browser_use_agent.agent.loop import (
     NeedsApprovalHook,
     default_needs_approval,
 )
+from browser_use_agent.audit.browser_actions import BrowserActionWriter
+from browser_use_agent.audit.model_calls import ModelCallWriter
 from browser_use_agent.audit.writer import AuditWriter
 from browser_use_agent.browser.session import BrowserSessionManager
 from browser_use_agent.db.models import Run
@@ -44,6 +46,21 @@ logger = logging.getLogger(__name__)
 SessionFactory = Callable[[], Session]
 JevFactory = Callable[[], JevClient]
 TextLLMFactory = Callable[[], TextLLMClient | None]
+
+
+def _optional_artifact_store():
+    """Build a filesystem artifact store when ``ARTIFACTS_ROOT`` is usable.
+
+    Returns:
+        Store instance, or ``None`` when the root is unset / unusable.
+    """
+    try:
+        from browser_use_agent.artifacts.store import FilesystemArtifactStore
+
+        return FilesystemArtifactStore.from_settings()
+    except Exception:
+        logger.debug("Artifact store unavailable for model-call offload", exc_info=True)
+        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,6 +269,8 @@ class RunWorker:
             goal = run.goal
             profile_id = run.profile_id
             audit = AuditWriter(session)
+            model_calls = ModelCallWriter(session, artifact_store=_optional_artifact_store())
+            browser_actions = BrowserActionWriter(session)
 
             if self.browser_port_factory is not None:
                 browser = self.browser_port_factory(run_id, session)
@@ -285,6 +304,8 @@ class RunWorker:
                 jev=self.jev_factory(),
                 text_llm=self.text_llm_factory(),
                 audit=audit,
+                model_calls=model_calls,
+                browser_actions=browser_actions,
                 adapter=self.adapter,
                 max_steps=self.settings.max_steps,
                 needs_approval=self.needs_approval,

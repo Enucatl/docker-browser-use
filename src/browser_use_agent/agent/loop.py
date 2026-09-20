@@ -16,9 +16,16 @@ from datetime import datetime
 from typing import Any, Protocol
 
 from browser_use_agent.agent.browser_port import BrowserPort, TypeTextBlockedError
-from browser_use_agent.policy.actions import ActionKind, AgentAction, BrowserObservation
+from browser_use_agent.audit.browser_actions import BrowserActionWriter
+from browser_use_agent.audit.model_calls import ModelCallWriter
+from browser_use_agent.policy.actions import (
+    ActionKind,
+    AgentAction,
+    BrowserObservation,
+    CandidateElement,
+)
 from browser_use_agent.policy.jev_adapter import JevAdapter, JevAdapterError
-from browser_use_agent.policy.jev_client import JevClient, JevClientError
+from browser_use_agent.policy.jev_client import JevClient, JevClientError, JevRequest, JevResponse
 from browser_use_agent.policy.text_llm import TextLLMClient, TextLLMError, maybe_fill_type_text
 from browser_use_agent.runs.status import RunStatus
 from browser_use_agent.security.redaction import redact_for_audit
@@ -99,6 +106,8 @@ class AgentLoop:
         jev: Decision client (live or fake).
         text_llm: Optional small text LLM for ``TYPE_TEXT`` fills (T016).
         audit: Audit writer (must redact; :class:`AuditWriter` does).
+        model_calls: Optional T017 ``model_calls`` table writer.
+        browser_actions: Optional T017 ``browser_actions`` table writer.
         adapter: Observation ↔ Jev mapper.
         max_steps: Hard cap to avoid infinite loops.
         needs_approval: Hook for T021; defaults to always False.
@@ -116,6 +125,8 @@ class AgentLoop:
         audit: AuditAppend,
         adapter: JevAdapter | None = None,
         text_llm: TextLLMClient | None = None,
+        model_calls: ModelCallWriter | None = None,
+        browser_actions: BrowserActionWriter | None = None,
         max_steps: int = 50,
         needs_approval: NeedsApprovalHook | None = None,
         checkpoint: CheckpointHook | None = None,
@@ -132,6 +143,8 @@ class AgentLoop:
             audit: Audit append sink.
             adapter: Optional adapter; a default is constructed when omitted.
             text_llm: Optional text LLM gate for ``TYPE_TEXT`` (T016).
+            model_calls: Optional normalized model-call writer (T017).
+            browser_actions: Optional normalized browser-action writer (T017).
             max_steps: Maximum observe/decide/execute iterations.
             needs_approval: Approval gate hook (default always False).
             checkpoint: Optional checkpoint writer (T018).
@@ -144,6 +157,8 @@ class AgentLoop:
         self.jev = jev
         self.text_llm = text_llm
         self.audit = audit
+        self.model_calls = model_calls
+        self.browser_actions = browser_actions
         self.adapter = adapter if adapter is not None else JevAdapter()
         self.max_steps = max(1, max_steps)
         self.needs_approval = needs_approval or default_needs_approval
@@ -346,7 +361,7 @@ class AgentLoop:
             "raw_answers": action.raw_answers,
             "model": response.model,
         }
-        self.audit.append(
+        decision_event = self.audit.append(
             self.run_id,
             "decision",
             decision_payload,
@@ -354,6 +369,13 @@ class AgentLoop:
             step_id=step_id,
             url=observation.url or None,
             duration_ms=decide_ms,
+        )
+        self._record_jev_model_call(
+            event=decision_event,
+            request=request,
+            response=response,
+            action=action,
+            latency_ms=decide_ms,
         )
         self._flush()
 
@@ -392,7 +414,8 @@ class AgentLoop:
         self._fill_type_text_if_needed(action, observation=observation, step_id=step_id)
 
         # --- execute ---
-        self.audit.append(
+        target_meta = _target_forensics(observation, action)
+        requested_event = self.audit.append(
             self.run_id,
             "action_requested",
             {
@@ -404,14 +427,26 @@ class AgentLoop:
             step_id=step_id,
             url=observation.url or None,
         )
+        self._record_browser_action(
+            event=requested_event,
+            action=action,
+            status="requested",
+            observation=observation,
+            target_meta=target_meta,
+            result_message=None,
+            page_changed=None,
+            duration_ms=None,
+            exec_meta=None,
+        )
         self._flush()
 
         t2 = time.perf_counter()
         result = await self.browser.execute(action)
         exec_ms = int((time.perf_counter() - t2) * 1000)
+        page_changed = _page_changed(observation, result.metadata)
 
         if result.ok:
-            self.audit.append(
+            completed_event = self.audit.append(
                 self.run_id,
                 "action_completed",
                 {
@@ -425,10 +460,21 @@ class AgentLoop:
                 url=observation.url or None,
                 duration_ms=exec_ms,
             )
+            self._record_browser_action(
+                event=completed_event,
+                action=action,
+                status="completed",
+                observation=observation,
+                target_meta=target_meta,
+                result_message=result.message,
+                page_changed=page_changed,
+                duration_ms=exec_ms,
+                exec_meta=result.metadata,
+            )
             self._flush()
             self._history.append(f"{action.kind.value}:{result.message or 'ok'}")
         else:
-            self.audit.append(
+            failed_event = self.audit.append(
                 self.run_id,
                 "action_failed",
                 {
@@ -440,6 +486,17 @@ class AgentLoop:
                 step_id=step_id,
                 url=observation.url or None,
                 duration_ms=exec_ms,
+            )
+            self._record_browser_action(
+                event=failed_event,
+                action=action,
+                status="failed",
+                observation=observation,
+                target_meta=target_meta,
+                result_message=result.error,
+                page_changed=page_changed,
+                duration_ms=exec_ms,
+                exec_meta=result.metadata,
             )
             self.audit.append(
                 self.run_id,
@@ -484,8 +541,8 @@ class AgentLoop:
     ) -> None:
         """Invoke the text LLM only for ``TYPE_TEXT`` actions missing text.
 
-        Writes ``model_call`` / ``model_call_failed`` audit events (T017 will
-        promote these into dedicated ``model_calls`` rows).
+        Writes ``model_call`` / ``model_call_failed`` audit events and, when
+        configured, normalized ``model_calls`` rows (T017).
 
         Args:
             action: Decision action (mutated when text is filled).
@@ -507,7 +564,7 @@ class AgentLoop:
                 client=self.text_llm,
             )
         except TextLLMError as exc:
-            self.audit.append(
+            failed_event = self.audit.append(
                 self.run_id,
                 "model_call_failed",
                 {
@@ -520,13 +577,24 @@ class AgentLoop:
                 step_id=step_id,
                 url=observation.url or None,
             )
+            if self.model_calls is not None and _is_agent_event(failed_event):
+                self.model_calls.record(
+                    event=failed_event,
+                    call_kind="text_llm",
+                    status="failed",
+                    request_meta={
+                        "kind": ActionKind.TYPE_TEXT.value,
+                        "target_index": action.target_index,
+                    },
+                    response_meta={"error": str(exc)},
+                )
             self._flush()
             raise
 
         if result is None:
             return
 
-        self.audit.append(
+        call_event = self.audit.append(
             self.run_id,
             "model_call",
             {
@@ -546,7 +614,147 @@ class AgentLoop:
             url=observation.url or None,
             duration_ms=result.latency_ms,
         )
+        if self.model_calls is not None and _is_agent_event(call_event):
+            provider = result.request_meta.get("provider")
+            request_id = result.response_meta.get("request_id") or result.request_meta.get(
+                "request_id"
+            )
+            self.model_calls.record(
+                event=call_event,
+                call_kind="text_llm",
+                provider=str(provider) if provider is not None else None,
+                model_name=result.model,
+                status="ok",
+                request_id=str(request_id) if request_id is not None else None,
+                prompt_tokens=result.prompt_tokens,
+                completion_tokens=result.completion_tokens,
+                latency_ms=result.latency_ms,
+                request_meta={
+                    **result.request_meta,
+                    "target_index": action.target_index,
+                    "raw_content": result.raw_content,
+                },
+                response_meta={
+                    **result.response_meta,
+                    "parsed_output": {"text": result.text},
+                    "raw_output": result.raw_content,
+                },
+            )
         self._flush()
+
+    def _record_jev_model_call(
+        self,
+        *,
+        event: Any,
+        request: JevRequest,
+        response: JevResponse,
+        action: AgentAction,
+        latency_ms: int,
+    ) -> None:
+        """Write a ``model_calls`` row for one Jev decide round-trip.
+
+        Args:
+            event: Source ``decision`` audit event (when DB-backed).
+            request: Outbound Jev request.
+            response: Inbound Jev response.
+            action: Mapped agent action.
+            latency_ms: Decide latency.
+        """
+        if self.model_calls is None or not _is_agent_event(event):
+            return
+        usage = response.usage
+        cost = usage.cost_usd if usage is not None else None
+        prompt_tokens = usage.input_tokens if usage is not None else None
+        completion_tokens = usage.output_tokens if usage is not None else None
+        self.model_calls.record(
+            event=event,
+            call_kind="jev",
+            provider="jev",
+            model_name=response.model,
+            status="ok",
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            latency_ms=latency_ms,
+            cost_usd=cost,
+            request_meta={
+                "model": request.model,
+                "state": request.state,
+                "questions": {
+                    name: q.model_dump(mode="json") for name, q in request.questions.items()
+                },
+            },
+            response_meta={
+                "raw_output": response.answers,
+                "parsed_output": {
+                    "kind": action.kind.value,
+                    "target_index": action.target_index,
+                    "confidence": action.confidence,
+                },
+                "candidates": _candidate_summaries_from_request(request),
+                "probabilities": action.probabilities,
+                "target_probabilities": action.target_probabilities,
+                "selected_action": action.kind.value,
+                "selected_target": action.target_index,
+                "alternatives": action.alternatives,
+                "usage": usage.model_dump(mode="json") if usage is not None else None,
+            },
+        )
+
+    def _record_browser_action(
+        self,
+        *,
+        event: Any,
+        action: AgentAction,
+        status: str,
+        observation: BrowserObservation,
+        target_meta: dict[str, Any],
+        result_message: str | None,
+        page_changed: bool | None,
+        duration_ms: int | None,
+        exec_meta: Mapping[str, Any] | None,
+    ) -> None:
+        """Write a ``browser_actions`` row when a DB-backed writer is configured.
+
+        Args:
+            event: Source audit event.
+            action: Executed (or requested) action.
+            status: ``requested``, ``completed``, or ``failed``.
+            observation: Pre-action observation.
+            target_meta: Element forensics from the observation.
+            result_message: Outcome or error string.
+            page_changed: Whether the page changed after execute.
+            duration_ms: Action duration.
+            exec_meta: Executor metadata (may include Browser Use ids).
+        """
+        if self.browser_actions is None or not _is_agent_event(event):
+            return
+        meta: dict[str, Any] = {
+            **target_meta,
+            "params": action.params.model_dump(mode="json"),
+        }
+        if exec_meta:
+            meta["executor"] = dict(exec_meta)
+            if "browser_use_ids" in exec_meta:
+                meta["browser_use_ids"] = exec_meta["browser_use_ids"]
+            if "bounds" in exec_meta and "bounds" not in meta:
+                meta["bounds"] = exec_meta["bounds"]
+        before_id = _optional_uuid((exec_meta or {}).get("before_artifact_id"))
+        after_id = _optional_uuid((exec_meta or {}).get("after_artifact_id"))
+        self.browser_actions.record(
+            event=event,
+            action_type=action.kind.value,
+            status=status,
+            target=target_meta.get("target_label"),
+            url=observation.url or None,
+            title=observation.title or None,
+            element_index=action.target_index,
+            page_changed=page_changed,
+            result=result_message,
+            duration_ms=duration_ms,
+            before_artifact_id=before_id,
+            after_artifact_id=after_id,
+            metadata=meta,
+        )
 
     async def _cancelled(self) -> bool:
         """Return whether cooperative cancellation was requested.
@@ -590,3 +798,138 @@ def _observation_audit_payload(observation: BrowserObservation) -> dict[str, Any
     }
     redacted = redact_for_audit(payload)
     return redacted if isinstance(redacted, dict) else {"value": redacted}
+
+
+def _is_agent_event(event: Any) -> bool:
+    """Return True when ``event`` looks like a persisted ``AgentEvent``.
+
+    Args:
+        event: Object returned from :meth:`AuditAppend.append`.
+
+    Returns:
+        Whether the object has ``id``, ``run_id``, and ``seq`` attributes.
+    """
+    return (
+        getattr(event, "id", None) is not None
+        and getattr(event, "run_id", None) is not None
+        and getattr(event, "seq", None) is not None
+    )
+
+
+def _target_forensics(
+    observation: BrowserObservation,
+    action: AgentAction,
+) -> dict[str, Any]:
+    """Build element forensic fields from the observation candidate.
+
+    Args:
+        observation: Pre-action observation.
+        action: Action that may reference a target index.
+
+    Returns:
+        Metadata dict with role, accessible name, attributes, and label.
+    """
+    meta: dict[str, Any] = {}
+    if action.target_index is None:
+        return meta
+    candidate = observation.candidate_by_index(action.target_index)
+    if candidate is None:
+        meta["target_label"] = f"element[{action.target_index}]"
+        meta["element_index"] = action.target_index
+        return meta
+    meta.update(_candidate_forensics(candidate))
+    return meta
+
+
+def _candidate_forensics(candidate: CandidateElement) -> dict[str, Any]:
+    """Map a candidate element to browser-action forensic fields.
+
+    Args:
+        candidate: Interactable element from the observation.
+
+    Returns:
+        Dict with ``accessible_name``, ``role``, ``attributes``, ``target_label``.
+    """
+    attributes: dict[str, Any] = {}
+    if candidate.tag:
+        attributes["tag"] = candidate.tag
+    if candidate.href:
+        attributes["href"] = candidate.href
+    if candidate.input_type:
+        attributes["input_type"] = candidate.input_type
+    attributes["is_editable"] = candidate.is_editable
+    attributes["is_password_field"] = candidate.is_password_field
+    return {
+        "element_index": candidate.index,
+        "accessible_name": candidate.name,
+        "role": candidate.role,
+        "attributes": attributes,
+        "target_label": candidate.criteria_label(),
+    }
+
+
+def _candidate_summaries_from_request(request: JevRequest) -> list[dict[str, Any]]:
+    """Extract compact candidate labels from a Jev request's target criteria.
+
+    Args:
+        request: Outbound Jev request.
+
+    Returns:
+        List of ``{index, label}`` dicts when criteria look like element indices.
+    """
+    summaries: list[dict[str, Any]] = []
+    for question in request.questions.values():
+        criteria = getattr(question, "criteria", None)
+        if not isinstance(criteria, Mapping):
+            continue
+        for key, label in criteria.items():
+            try:
+                index = int(key)
+            except TypeError, ValueError:
+                continue
+            summaries.append({"index": index, "label": label})
+        if summaries:
+            break
+    return summaries
+
+
+def _page_changed(
+    observation: BrowserObservation,
+    exec_meta: Mapping[str, Any] | None,
+) -> bool | None:
+    """Infer whether the page changed from executor metadata.
+
+    Args:
+        observation: Pre-action observation.
+        exec_meta: Executor result metadata.
+
+    Returns:
+        Explicit flag from metadata, URL comparison when present, else ``None``.
+    """
+    if not exec_meta:
+        return None
+    if "page_changed" in exec_meta:
+        return bool(exec_meta["page_changed"])
+    after_url = exec_meta.get("url")
+    if isinstance(after_url, str) and after_url:
+        return after_url != observation.url
+    return None
+
+
+def _optional_uuid(value: Any) -> uuid.UUID | None:
+    """Parse an optional UUID from executor metadata.
+
+    Args:
+        value: Raw value (UUID, str, or other).
+
+    Returns:
+        Parsed UUID, or ``None`` when missing/invalid.
+    """
+    if value is None:
+        return None
+    if isinstance(value, uuid.UUID):
+        return value
+    try:
+        return uuid.UUID(str(value))
+    except TypeError, ValueError, AttributeError:
+        return None

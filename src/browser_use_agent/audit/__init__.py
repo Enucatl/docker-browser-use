@@ -1,5 +1,6 @@
 """Append-only audit writer and per-run hash-chain verification."""
 
+from browser_use_agent.audit.browser_actions import BrowserActionWriter
 from browser_use_agent.audit.hashchain import (
     GENESIS_PREV_HASH,
     canonicalize_event_fields,
@@ -9,6 +10,7 @@ from browser_use_agent.audit.hashchain import (
     verify_events_chain,
     verify_run_chain,
 )
+from browser_use_agent.audit.model_calls import ModelCallWriter
 from browser_use_agent.audit.writer import (
     Actor,
     AuditWriter,
@@ -22,6 +24,8 @@ __all__ = [
     "Actor",
     "AuditWriter",
     "AuditWriterError",
+    "BrowserActionWriter",
+    "ModelCallWriter",
     "canonicalize_event_fields",
     "canonicalize_value",
     "compute_event_hash",

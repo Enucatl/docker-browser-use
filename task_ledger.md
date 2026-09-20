@@ -51,8 +51,8 @@ Status values: `todo` · `ready` · `blocked` · `in_progress` · `done` · `can
 | T011 | WebSocket run progress and live event stream | T010 | done | [tasks/T011.md](tasks/T011.md) |
 | T012 | Authelia `Remote-User` trust and CSRF/origin hardening | T010, T002 | done | [tasks/T012.md](tasks/T012.md) |
 | T013 | Browser Use session manager (on-demand Chrome, persistent profile) | T004, T010 | done | [tasks/T013.md](tasks/T013.md) |
-| T014 | Jev action space + Browser Use ↔ Jev adapter | T001 | ready | [tasks/T014.md](tasks/T014.md) |
-| T015 | Observe → Jev → execute control loop with audit hooks | T009, T013, T014 | todo | [tasks/T015.md](tasks/T015.md) |
+| T014 | Jev action space + Browser Use ↔ Jev adapter | T001 | done | [tasks/T014.md](tasks/T014.md) |
+| T015 | Observe → Jev → execute control loop with audit hooks | T009, T013, T014 | ready | [tasks/T015.md](tasks/T015.md) |
 | T016 | Small text LLM gate for `TYPE_TEXT` only | T015 | todo | [tasks/T016.md](tasks/T016.md) |
 | T017 | Model-call and browser-action tracing tables/writers | T009, T015 | todo | [tasks/T017.md](tasks/T017.md) |
 | T018 | Compressed browser-state checkpoints on meaningful changes | T007, T015 | todo | [tasks/T018.md](tasks/T018.md) |

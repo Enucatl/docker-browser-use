@@ -81,12 +81,13 @@ services:
         condition: service_healthy
         required: false
 
-  # Internal Chromium/CDP worker. Not on traefik_proxy; CDP is not host-published.
-  # Hardening: limits-xlarge (not hardened-*) — see docs/browser-runtime.md.
+  # Internal Chromium/CDP worker + Xvfb/x11vnc. Not on traefik_proxy; CDP/VNC
+  # are not host-published. Live HTTP view is the sibling `novnc` service.
+  # Hardening: limits-xxlarge (not hardened-*) — see docs/browser-runtime.md.
   browser:
     extends:
       file: ../compose-security-baseline/hardening.yml
-      service: limits-xlarge
+      service: limits-xxlarge
     build:
       context: .
       dockerfile: Dockerfile.browser
@@ -103,17 +104,21 @@ services:
       - CDP_PORT=${CDP_PORT:-9222}
       - CHROME_USER_DATA_DIR=/data/chrome-profile
       - CHROME_DOWNLOAD_DIR=/data/downloads
+      - DISPLAY=${DISPLAY:-:99}
+      - VNC_PORT=${VNC_PORT:-5900}
+      # T022 view-only; interactive takeover is T023.
+      - VNC_VIEW_ONLY=${VNC_VIEW_ONLY:-true}
       # Required in Docker without Chrome user-namespace sandbox support.
       - CHROMIUM_FLAGS=--no-sandbox --disable-gpu --disable-dev-shm-usage
     restart: unless-stopped
-    # Intentionally empty: do not publish CDP to the host.
+    # Intentionally empty: do not publish CDP (9222) or VNC (5900) to the host.
     ports: []
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://127.0.0.1:9222/json/version"]
       interval: 30s
       timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 30s
     tmpfs:
       - /tmp:rw,nosuid,nodev,mode=1777,size=256m
     volumes:
@@ -122,6 +127,57 @@ services:
       - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
     networks:
       - default
+
+  # Authelia-gated noVNC HTTP edge. Joins traefik_proxy for /vnc only; bridges
+  # to browser:5900 on the internal network. CDP never touches this service.
+  # Hardening: hardened-tiny + /tmp tmpfs — see docs/live-view.md.
+  novnc:
+    extends:
+      file: ../compose-security-baseline/hardening.yml
+      service: hardened-tiny
+    build:
+      context: .
+      dockerfile: Dockerfile.novnc
+      args:
+        VERSION: ${VERSION:-0.0.0}
+    image: ghcr.io/enucatl/browser-use-novnc:latest
+    user: "1000:1000"
+    environment:
+      - TZ=${TZ:-Europe/Zurich}
+      - VNC_TARGET=browser:${VNC_PORT:-5900}
+      - NOVNC_PORT=6080
+    restart: unless-stopped
+    ports: []
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:6080/', timeout=2)\"",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,mode=1777,size=16m
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik_proxy"
+      # Higher priority than the controller Host() rule so /vnc is not swallowed.
+      - "traefik.http.routers.browser-use-vnc.rule=Host(`browser-use.${DOCKER_DOMAIN}`) && PathPrefix(`/vnc`)"
+      - "traefik.http.routers.browser-use-vnc.entrypoints=https"
+      - "traefik.http.routers.browser-use-vnc.tls=true"
+      - "traefik.http.routers.browser-use-vnc.priority=200"
+      - "traefik.http.routers.browser-use-vnc.middlewares=browser-use-vnc-strip,authelia@docker,secured@file"
+      - "traefik.http.routers.browser-use-vnc.service=browser-use-vnc"
+      - "traefik.http.middlewares.browser-use-vnc-strip.stripprefix.prefixes=/vnc"
+      - "traefik.http.services.browser-use-vnc.loadbalancer.server.port=6080"
+    networks:
+      - traefik_proxy
+      - default
+    depends_on:
+      browser:
+        condition: service_healthy
 
   db:
     extends:

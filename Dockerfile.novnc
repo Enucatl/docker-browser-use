@@ -1,0 +1,31 @@
+# Lightweight noVNC / websockify edge for the agent Chrome live view.
+# Joins traefik_proxy (Authelia-gated HTTP only). Connects to browser:5900 on
+# the internal Compose network — never publishes raw VNC or CDP.
+FROM debian:bookworm-slim
+
+ARG VERSION=0.0.0
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        novnc \
+        python3 \
+        websockify \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd --system --gid 1000 novnc \
+    && useradd --system --uid 1000 --gid novnc --home-dir /nonexistent --shell /usr/sbin/nologin novnc
+
+ENV VERSION=${VERSION} \
+    VNC_TARGET=browser:5900 \
+    NOVNC_PORT=6080 \
+    NOVNC_WEB=/usr/share/novnc
+
+COPY scripts/novnc-entrypoint.sh /usr/local/bin/novnc-entrypoint.sh
+COPY scripts/novnc-index.html /usr/share/novnc/index.html
+RUN chmod 755 /usr/local/bin/novnc-entrypoint.sh
+
+USER novnc
+EXPOSE 6080
+
+ENTRYPOINT ["/usr/local/bin/novnc-entrypoint.sh"]

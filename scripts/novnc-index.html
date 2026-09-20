@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>browser-use live view</title>
+  <!--
+    Traefik PathPrefix /vnc + stripprefix: the browser URL is /vnc/... while
+    websockify sees /. noVNC must open the WebSocket at /vnc/websockify so the
+    prefix still matches before strip (see docs/live-view.md).
+  -->
+  <meta http-equiv="refresh" content="0;url=vnc.html?autoconnect=1&resize=scale&path=vnc/websockify">
+</head>
+<body>
+  <p>
+    <a href="vnc.html?autoconnect=1&resize=scale&path=vnc/websockify">Open agent Chrome live view</a>
+  </p>
+</body>
+</html>

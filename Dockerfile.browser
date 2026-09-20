@@ -1,5 +1,6 @@
-# Chromium worker image for Browser Use CDP (internal network only).
+# Chromium worker image for Browser Use CDP + Xvfb/x11vnc (internal network only).
 # Keep this image free of app Python code; the controller talks to CDP over Compose DNS.
+# Raw VNC (5900) stays Compose-internal; Authelia-gated noVNC is a sibling service.
 FROM debian:bookworm-slim
 
 ARG VERSION=0.0.0
@@ -14,6 +15,8 @@ RUN apt-get update \
         fonts-noto-core \
         nginx-light \
         tini \
+        x11vnc \
+        xvfb \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root UID matches the chrome_profile volume owner used in compose.
@@ -29,6 +32,9 @@ ENV VERSION=${VERSION} \
     CHROME_DOWNLOAD_DIR=/data/downloads \
     CDP_PORT=9222 \
     CDP_LOOPBACK_PORT=9223 \
+    DISPLAY=:99 \
+    VNC_PORT=5900 \
+    VNC_VIEW_ONLY=true \
     # Chromium under Docker without user namespaces needs --no-sandbox.
     CHROMIUM_FLAGS="--no-sandbox --disable-gpu --disable-dev-shm-usage"
 
@@ -40,8 +46,8 @@ RUN chmod 755 /usr/local/bin/browser-entrypoint.sh \
 USER browser
 WORKDIR /home/browser
 
-# CDP stays internal to the Compose network — never publish this port on the host.
-EXPOSE 9222
+# CDP and VNC stay internal to the Compose network — never publish on the host.
+EXPOSE 9222 5900
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/browser-entrypoint.sh"]
 CMD ["chromium"]

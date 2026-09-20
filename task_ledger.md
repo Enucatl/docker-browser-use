@@ -53,7 +53,7 @@ Status values: `todo` · `ready` · `blocked` · `in_progress` · `done` · `can
 | T013 | Browser Use session manager (on-demand Chrome, persistent profile) | T004, T010 | done | [tasks/T013.md](tasks/T013.md) |
 | T014 | Jev action space + Browser Use ↔ Jev adapter | T001 | done | [tasks/T014.md](tasks/T014.md) |
 | T015 | Observe → Jev → execute control loop with audit hooks | T009, T013, T014 | done | [tasks/T015.md](tasks/T015.md) |
-| T016 | Small text LLM gate for `TYPE_TEXT` only | T015 | ready | [tasks/T016.md](tasks/T016.md) |
+| T016 | Small text LLM gate for `TYPE_TEXT` only | T015 | done | [tasks/T016.md](tasks/T016.md) |
 | T017 | Model-call and browser-action tracing tables/writers | T009, T015 | ready | [tasks/T017.md](tasks/T017.md) |
 | T018 | Compressed browser-state checkpoints on meaningful changes | T007, T015 | ready | [tasks/T018.md](tasks/T018.md) |
 | T019 | Screenshot policy (WebP/JPEG, event-driven capture) | T007, T015 | ready | [tasks/T019.md](tasks/T019.md) |

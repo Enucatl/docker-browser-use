@@ -1,8 +1,8 @@
 """Browser observation / action execution ports for the agent loop.
 
 Real Chrome execution goes through Browser Use; unit tests inject
-:class:`FakeBrowserPort`. ``TYPE_TEXT`` is fail-closed until T016 unless the
-action already carries typed text (or a stub resolver supplies it).
+:class:`FakeBrowserPort`. ``TYPE_TEXT`` requires ``params.text`` (filled by
+the T016 text LLM gate in the agent loop, or a test stub).
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from browser_use_agent.policy.actions import (
 
 
 class TypeTextBlockedError(RuntimeError):
-    """Raised when ``TYPE_TEXT`` has no text and T016 is not wired yet."""
+    """Raised when ``TYPE_TEXT`` reaches execute without ``params.text``."""
 
 
 @dataclass(slots=True)
@@ -146,7 +146,7 @@ class FakeBrowserPort:
             text = action.params.text or self.type_text_stub
             if not text:
                 raise TypeTextBlockedError(
-                    "TYPE_TEXT requires text from T016 (fail-closed until wired)",
+                    "TYPE_TEXT requires text from the text LLM gate (T016)",
                 )
             return ActionExecutionResult(
                 ok=True,
@@ -181,8 +181,8 @@ class BrowserUsePort:
     """Observe / execute via a live :class:`~browser_use.BrowserSession`.
 
     Uses Browser Use ``get_browser_state_summary`` for observation and the
-    Tools registry for click / navigate / scroll / go_back. ``TYPE_TEXT`` is
-    fail-closed unless ``params.text`` is already set (T016 fills it later).
+    Tools registry for click / navigate / scroll / go_back. ``TYPE_TEXT``
+    requires ``params.text`` (the agent loop fills it via the T016 gate).
 
     Attributes:
         session: Connected Browser Use session.
@@ -234,7 +234,7 @@ class BrowserUsePort:
             Normalized execution result.
 
         Raises:
-            TypeTextBlockedError: When ``TYPE_TEXT`` has no text yet.
+            TypeTextBlockedError: When ``TYPE_TEXT`` has no text.
         """
         if action.kind == ActionKind.DONE:
             return ActionExecutionResult(
@@ -246,7 +246,7 @@ class BrowserUsePort:
         if action.kind == ActionKind.TYPE_TEXT:
             if not action.params.text:
                 raise TypeTextBlockedError(
-                    "TYPE_TEXT requires text from T016 (fail-closed until wired)",
+                    "TYPE_TEXT requires text from the text LLM gate (T016)",
                 )
 
         if action.kind in {

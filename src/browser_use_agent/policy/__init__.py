@@ -1,4 +1,4 @@
-"""Jev action space, client, and Browser Use ↔ Jev adapter."""
+"""Jev action space, clients, text LLM gate, and Browser Use ↔ Jev adapter."""
 
 from browser_use_agent.policy.actions import (
     ALL_ACTION_KINDS,
@@ -30,6 +30,19 @@ from browser_use_agent.policy.jev_client import (
     JevResponse,
     load_jev_client_settings,
 )
+from browser_use_agent.policy.text_llm import (
+    FakeTextLLMClient,
+    OpenAICompatibleTextLLMClient,
+    TextLLMClient,
+    TextLLMError,
+    TextLLMNotConfiguredError,
+    TextLLMPrompt,
+    TextLLMResult,
+    TextLLMSettings,
+    build_type_text_prompt,
+    load_text_llm_settings,
+    maybe_fill_type_text,
+)
 
 __all__ = [
     "ALL_ACTION_KINDS",
@@ -44,6 +57,7 @@ __all__ = [
     "CandidateElement",
     "FakeDecision",
     "FakeJevClient",
+    "FakeTextLLMClient",
     "HttpJevClient",
     "JevAdapter",
     "JevAdapterError",
@@ -53,7 +67,17 @@ __all__ = [
     "JevClientSettings",
     "JevRequest",
     "JevResponse",
+    "OpenAICompatibleTextLLMClient",
     "ScrollDirection",
+    "TextLLMClient",
+    "TextLLMError",
+    "TextLLMNotConfiguredError",
+    "TextLLMPrompt",
+    "TextLLMResult",
+    "TextLLMSettings",
+    "build_type_text_prompt",
     "load_jev_client_settings",
+    "load_text_llm_settings",
+    "maybe_fill_type_text",
     "observation_from_browser_state",
 ]

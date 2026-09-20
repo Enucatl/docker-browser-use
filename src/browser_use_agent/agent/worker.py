@@ -31,6 +31,11 @@ from browser_use_agent.policy.jev_client import (
     JevClient,
     load_jev_client_settings,
 )
+from browser_use_agent.policy.text_llm import (
+    OpenAICompatibleTextLLMClient,
+    TextLLMClient,
+    load_text_llm_settings,
+)
 from browser_use_agent.runs.status import TERMINAL_STATUSES, RunStatus
 from browser_use_agent.services.runs import get_run
 
@@ -38,6 +43,7 @@ logger = logging.getLogger(__name__)
 
 SessionFactory = Callable[[], Session]
 JevFactory = Callable[[], JevClient]
+TextLLMFactory = Callable[[], TextLLMClient | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +97,19 @@ def default_jev_factory() -> JevClient:
     return FakeJevClient()
 
 
+def default_text_llm_factory() -> TextLLMClient | None:
+    """Build a text LLM client when ``TEXT_LLM_API_KEY`` / ``*_FILE`` is set.
+
+    Returns:
+        :class:`OpenAICompatibleTextLLMClient` when configured; otherwise
+        ``None`` (``TYPE_TEXT`` without pre-filled text fails closed).
+    """
+    settings = load_text_llm_settings()
+    if not settings.api_key:
+        return None
+    return OpenAICompatibleTextLLMClient(settings)
+
+
 class RunWorker:
     """Orchestrates agent loops: one task per run, global concurrency cap.
 
@@ -102,6 +121,7 @@ class RunWorker:
         session_factory: SQLAlchemy session factory for audit / status.
         browser_manager: Optional Browser Use session manager for live Chrome.
         jev_factory: Builds a Jev client per run.
+        text_llm_factory: Builds an optional text LLM client per run (T016).
         needs_approval: Approval hook (default False).
         checkpoint: Optional T018 checkpoint hook.
     """
@@ -113,6 +133,7 @@ class RunWorker:
         settings: RunWorkerSettings | None = None,
         browser_manager: BrowserSessionManager | None = None,
         jev_factory: JevFactory | None = None,
+        text_llm_factory: TextLLMFactory | None = None,
         browser_port_factory: Callable[[uuid.UUID, Session], BrowserPort] | None = None,
         needs_approval: NeedsApprovalHook | None = None,
         checkpoint: CheckpointHook | None = None,
@@ -126,6 +147,7 @@ class RunWorker:
             browser_manager: Live browser manager (required unless a port factory
                 is injected for tests).
             jev_factory: Optional Jev client factory.
+            text_llm_factory: Optional text LLM factory (T016).
             browser_port_factory: Optional test hook that returns a BrowserPort.
             needs_approval: Approval gate hook.
             checkpoint: Optional checkpoint hook.
@@ -135,6 +157,7 @@ class RunWorker:
         self.session_factory = session_factory
         self.browser_manager = browser_manager
         self.jev_factory = jev_factory or default_jev_factory
+        self.text_llm_factory = text_llm_factory or default_text_llm_factory
         self.browser_port_factory = browser_port_factory
         self.needs_approval = needs_approval or default_needs_approval
         self.checkpoint = checkpoint
@@ -260,6 +283,7 @@ class RunWorker:
                 goal=goal,
                 browser=browser,
                 jev=self.jev_factory(),
+                text_llm=self.text_llm_factory(),
                 audit=audit,
                 adapter=self.adapter,
                 max_steps=self.settings.max_steps,

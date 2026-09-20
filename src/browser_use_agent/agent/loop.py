@@ -19,6 +19,7 @@ from browser_use_agent.agent.browser_port import BrowserPort, TypeTextBlockedErr
 from browser_use_agent.policy.actions import ActionKind, AgentAction, BrowserObservation
 from browser_use_agent.policy.jev_adapter import JevAdapter, JevAdapterError
 from browser_use_agent.policy.jev_client import JevClient, JevClientError
+from browser_use_agent.policy.text_llm import TextLLMClient, TextLLMError, maybe_fill_type_text
 from browser_use_agent.runs.status import RunStatus
 from browser_use_agent.security.redaction import redact_for_audit
 
@@ -96,6 +97,7 @@ class AgentLoop:
         goal: Operator natural-language goal.
         browser: Observation / execution port.
         jev: Decision client (live or fake).
+        text_llm: Optional small text LLM for ``TYPE_TEXT`` fills (T016).
         audit: Audit writer (must redact; :class:`AuditWriter` does).
         adapter: Observation ↔ Jev mapper.
         max_steps: Hard cap to avoid infinite loops.
@@ -113,6 +115,7 @@ class AgentLoop:
         jev: JevClient,
         audit: AuditAppend,
         adapter: JevAdapter | None = None,
+        text_llm: TextLLMClient | None = None,
         max_steps: int = 50,
         needs_approval: NeedsApprovalHook | None = None,
         checkpoint: CheckpointHook | None = None,
@@ -128,6 +131,7 @@ class AgentLoop:
             jev: Jev client.
             audit: Audit append sink.
             adapter: Optional adapter; a default is constructed when omitted.
+            text_llm: Optional text LLM gate for ``TYPE_TEXT`` (T016).
             max_steps: Maximum observe/decide/execute iterations.
             needs_approval: Approval gate hook (default always False).
             checkpoint: Optional checkpoint writer (T018).
@@ -138,6 +142,7 @@ class AgentLoop:
         self.goal = goal
         self.browser = browser
         self.jev = jev
+        self.text_llm = text_llm
         self.audit = audit
         self.adapter = adapter if adapter is not None else JevAdapter()
         self.max_steps = max(1, max_steps)
@@ -187,7 +192,7 @@ class AgentLoop:
 
             try:
                 outcome = await self._step(step_id, step_number=steps)
-            except TypeTextBlockedError as exc:
+            except (TypeTextBlockedError, TextLLMError) as exc:
                 self.audit.append(
                     self.run_id,
                     "action_failed",
@@ -383,6 +388,9 @@ class AgentLoop:
             self._flush()
             return LoopOutcome(status=RunStatus.CANCELLED, message="cancelled")
 
+        # --- text LLM gate (TYPE_TEXT only) ---
+        self._fill_type_text_if_needed(action, observation=observation, step_id=step_id)
+
         # --- execute ---
         self.audit.append(
             self.run_id,
@@ -466,6 +474,79 @@ class AgentLoop:
             )
 
         return None
+
+    def _fill_type_text_if_needed(
+        self,
+        action: AgentAction,
+        *,
+        observation: BrowserObservation,
+        step_id: uuid.UUID,
+    ) -> None:
+        """Invoke the text LLM only for ``TYPE_TEXT`` actions missing text.
+
+        Writes ``model_call`` / ``model_call_failed`` audit events (T017 will
+        promote these into dedicated ``model_calls`` rows).
+
+        Args:
+            action: Decision action (mutated when text is filled).
+            observation: Current observation for field context.
+            step_id: Step grouping id for audit events.
+
+        Raises:
+            TextLLMError: When the gate fails; also audited before raise.
+        """
+        if action.kind != ActionKind.TYPE_TEXT:
+            return
+        if action.params.text:
+            return
+        try:
+            result = maybe_fill_type_text(
+                action,
+                goal=self.goal,
+                observation=observation,
+                client=self.text_llm,
+            )
+        except TextLLMError as exc:
+            self.audit.append(
+                self.run_id,
+                "model_call_failed",
+                {
+                    "call_kind": "text_llm",
+                    "kind": ActionKind.TYPE_TEXT.value,
+                    "target_index": action.target_index,
+                    "error": str(exc),
+                },
+                actor="agent",
+                step_id=step_id,
+                url=observation.url or None,
+            )
+            self._flush()
+            raise
+
+        if result is None:
+            return
+
+        self.audit.append(
+            self.run_id,
+            "model_call",
+            {
+                "call_kind": "text_llm",
+                "provider": result.request_meta.get("provider"),
+                "model": result.model,
+                "prompt_tokens": result.prompt_tokens,
+                "completion_tokens": result.completion_tokens,
+                "latency_ms": result.latency_ms,
+                "request_meta": result.request_meta,
+                "response_meta": result.response_meta,
+                "target_index": action.target_index,
+                "chars": len(result.text),
+            },
+            actor="agent",
+            step_id=step_id,
+            url=observation.url or None,
+            duration_ms=result.latency_ms,
+        )
+        self._flush()
 
     async def _cancelled(self) -> bool:
         """Return whether cooperative cancellation was requested.

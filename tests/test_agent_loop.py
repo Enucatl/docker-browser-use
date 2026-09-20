@@ -233,8 +233,8 @@ def test_secrets_redacted_in_stored_payloads() -> None:
     asyncio.run(_run())
 
 
-def test_type_text_fail_closed_without_t016() -> None:
-    """TYPE_TEXT without text fails closed pending T016."""
+def test_type_text_fail_closed_without_text_llm() -> None:
+    """TYPE_TEXT without a text LLM client fails closed with audit events."""
 
     async def _run() -> None:
         run_id = uuid.uuid4()
@@ -263,8 +263,8 @@ def test_type_text_fail_closed_without_t016() -> None:
         ).run()
 
         assert outcome.status == RunStatus.FAILED
-        assert "TYPE_TEXT" in (outcome.message or "")
-        assert "action_failed" in audit.types()
+        assert "TYPE_TEXT" in (outcome.message or "") or "text LLM" in (outcome.message or "")
+        assert "model_call_failed" in audit.types()
         assert "run_failed" in audit.types()
         with pytest.raises(TypeTextBlockedError):
             await FakeBrowserPort().execute(

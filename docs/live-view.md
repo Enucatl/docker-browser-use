@@ -87,8 +87,14 @@ Full Authelia login may not be exercisable from every automation host. Checklist
 If Authelia cannot be completed here, steps 1–4 plus Traefik label review still
 validate the non-public CDP/VNC posture and the intended middleware chain.
 
-## Out of scope (T023+)
+## Out of scope (later)
 
-- Take-control mutex / `awaiting_human`
-- Disabling view-only / shared interactive VNC
+- Disabling view-only / shared interactive VNC (env `VNC_VIEW_ONLY` still defaults true)
 - WebRTC replacement for noVNC
+
+## Take-control (T023)
+
+Agent mutex and run status `awaiting_human` are documented in
+[`takeover.md`](takeover.md). Live view remains view-only by default; operators
+take/release control via the controller API so the agent cannot click/type while
+a human owns the session.

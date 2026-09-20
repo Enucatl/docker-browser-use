@@ -29,6 +29,7 @@ from browser_use_agent.agent.approvals import (
 )
 from browser_use_agent.agent.browser_port import BrowserPort, TypeTextBlockedError
 from browser_use_agent.agent.controls import RunControlSignals, wait_while_paused
+from browser_use_agent.agent.takeover import wait_while_awaiting_human
 from browser_use_agent.audit.browser_actions import BrowserActionWriter
 from browser_use_agent.audit.model_calls import ModelCallWriter
 from browser_use_agent.audit.screenshots import is_destructive_action
@@ -65,7 +66,12 @@ ScreenshotHook = CheckpointHook
 ScreenshotHookWithReason = CheckpointHookWithReason
 CancelCheck = Callable[[], bool | Awaitable[bool]]
 PauseCheck = Callable[[], bool | Awaitable[bool]]
+HumanControlCheck = Callable[[], bool | Awaitable[bool]]
 RetryConsume = Callable[[], bool]
+
+# Returned by :meth:`AgentLoop._control_gate` when takeover cleared mid-step so
+# the caller aborts the stale decide/execute and starts a fresh observe.
+_FRESH_OBSERVE = object()
 
 
 class AgentLoopError(RuntimeError):
@@ -133,6 +139,8 @@ class AgentLoop:
         screenshot: Optional T019 hook; skipped when ``None``.
         is_cancelled: Cooperative cancel check between phases.
         is_paused: Cooperative pause check; when True the loop parks.
+        is_awaiting_human: Takeover check (T023); stronger than pause — parks
+            and discards mid-step decide/execute for a fresh observe on release.
         control_signals: In-process wakeups for pause/resume/approval (T020/T021).
         consume_step_retry: Returns True once when a step retry was armed.
     """
@@ -159,6 +167,7 @@ class AgentLoop:
         screenshot: ScreenshotHook | ScreenshotHookWithReason | None = None,
         is_cancelled: CancelCheck | None = None,
         is_paused: PauseCheck | None = None,
+        is_awaiting_human: HumanControlCheck | None = None,
         control_signals: RunControlSignals | None = None,
         consume_step_retry: RetryConsume | None = None,
         commit: Callable[[], None] | None = None,
@@ -187,6 +196,7 @@ class AgentLoop:
                 ``checkpoint``; forced on approval/error/destructive actions.
             is_cancelled: Returns True when the run should stop cooperatively.
             is_paused: Returns True when the run should park until resume.
+            is_awaiting_human: Returns True while human owns the browser (T023).
             control_signals: Optional in-process wake hub entry for this run.
             consume_step_retry: Optional one-shot retry arm consumer (T020).
             commit: Optional callback after each audit batch (e.g. session.commit).
@@ -215,6 +225,7 @@ class AgentLoop:
         self.screenshot = screenshot
         self.is_cancelled = is_cancelled
         self.is_paused = is_paused
+        self.is_awaiting_human = is_awaiting_human
         self.control_signals = control_signals
         self.consume_step_retry = consume_step_retry
         self._commit = commit
@@ -244,6 +255,8 @@ class AgentLoop:
                 step_id=last_step_id,
                 steps_completed=steps,
             )
+            if gate is _FRESH_OBSERVE:
+                continue
             if gate is not None:
                 return gate
 
@@ -350,6 +363,8 @@ class AgentLoop:
             steps_completed=step_number - 1,
             step_number=step_number,
         )
+        if gate is _FRESH_OBSERVE:
+            return None
         if gate is not None:
             return gate
 
@@ -377,6 +392,16 @@ class AgentLoop:
             steps_completed=step_number - 1,
             step_number=step_number,
         )
+        if gate is _FRESH_OBSERVE:
+            self.audit.append(
+                self.run_id,
+                "takeover_fresh_observe",
+                {"reason": "before_decide", "step_number": step_number},
+                actor="system",
+                step_id=step_id,
+            )
+            self._flush()
+            return None
         if gate is not None:
             return gate
 
@@ -525,6 +550,16 @@ class AgentLoop:
             steps_completed=step_number - 1,
             step_number=step_number,
         )
+        if gate is _FRESH_OBSERVE:
+            self.audit.append(
+                self.run_id,
+                "takeover_fresh_observe",
+                {"reason": "before_execute", "step_number": step_number},
+                actor="system",
+                step_id=step_id,
+            )
+            self._flush()
+            return None
         if gate is not None:
             return gate
 
@@ -904,8 +939,13 @@ class AgentLoop:
         step_id: uuid.UUID | None,
         steps_completed: int,
         step_number: int | None = None,
-    ) -> LoopOutcome | None:
-        """Honor pause (park) and cancel between loop phases.
+    ) -> LoopOutcome | object | None:
+        """Honor takeover, pause (park), and cancel between loop phases.
+
+        Takeover (``awaiting_human``) is checked before pause and is stronger:
+        after human control clears mid-step (``before_decide`` /
+        ``before_execute``), returns ``_FRESH_OBSERVE`` so the caller discards
+        a stale decision and starts a new observe cycle.
 
         Args:
             reason: Short label for audit when cancelling.
@@ -914,7 +954,8 @@ class AgentLoop:
             step_number: Optional 1-based step counter for mid-step cancels.
 
         Returns:
-            A cancel :class:`LoopOutcome` when stopping; otherwise ``None``.
+            A cancel :class:`LoopOutcome` when stopping; ``_FRESH_OBSERVE`` when
+            takeover cleared mid-step; otherwise ``None``.
         """
         if await self._cancelled():
             payload: dict[str, Any] = {
@@ -937,6 +978,65 @@ class AgentLoop:
                 steps_completed=steps_completed,
                 last_step_id=step_id,
             )
+
+        waited_for_human = False
+        if self.is_awaiting_human is not None and self.control_signals is not None:
+            if await self._awaiting_human():
+                waited_for_human = True
+            cancelled = await wait_while_awaiting_human(
+                is_awaiting_human=self.is_awaiting_human,
+                is_cancelled=self.is_cancelled or (lambda: False),
+                signals=self.control_signals,
+            )
+            if cancelled:
+                payload = {
+                    "reason": f"cooperative_cancel_while_awaiting_human_{reason}",
+                    "steps_completed": steps_completed,
+                }
+                if step_number is not None:
+                    payload["step_number"] = step_number
+                self.audit.append(
+                    self.run_id,
+                    "run_cancelled",
+                    payload,
+                    actor="system",
+                    step_id=step_id,
+                )
+                self._flush()
+                return LoopOutcome(
+                    status=RunStatus.CANCELLED,
+                    message="cancelled",
+                    steps_completed=steps_completed,
+                    last_step_id=step_id,
+                )
+        elif self.is_awaiting_human is not None:
+            while await self._awaiting_human():
+                waited_for_human = True
+                if await self._cancelled():
+                    payload = {
+                        "reason": f"cooperative_cancel_while_awaiting_human_{reason}",
+                        "steps_completed": steps_completed,
+                    }
+                    if step_number is not None:
+                        payload["step_number"] = step_number
+                    self.audit.append(
+                        self.run_id,
+                        "run_cancelled",
+                        payload,
+                        actor="system",
+                        step_id=step_id,
+                    )
+                    self._flush()
+                    return LoopOutcome(
+                        status=RunStatus.CANCELLED,
+                        message="cancelled",
+                        steps_completed=steps_completed,
+                        last_step_id=step_id,
+                    )
+                await asyncio.sleep(0.05)
+
+        if waited_for_human and reason in {"before_decide", "before_execute"}:
+            return _FRESH_OBSERVE
 
         if self.is_paused is not None and self.control_signals is not None:
             cancelled = await wait_while_paused(
@@ -1046,6 +1146,19 @@ class AgentLoop:
         if self.is_paused is None:
             return False
         result = self.is_paused()
+        if isinstance(result, Awaitable):
+            return bool(await result)
+        return bool(result)
+
+    async def _awaiting_human(self) -> bool:
+        """Return whether the human owns browser control.
+
+        Returns:
+            ``True`` when the takeover check says park.
+        """
+        if self.is_awaiting_human is None:
+            return False
+        result = self.is_awaiting_human()
         if isinstance(result, Awaitable):
             return bool(await result)
         return bool(result)

@@ -60,7 +60,7 @@ Status values: `todo` · `ready` · `blocked` · `in_progress` · `done` · `can
 | T020 | Pause, resume, cancel, and retry controls | T010, T015 | done | [tasks/T020.md](tasks/T020.md) |
 | T021 | Human approval gates for high-impact actions | T011, T015, T020 | done | [tasks/T021.md](tasks/T021.md) |
 | T022 | Live agent Chrome view (Xvfb + noVNC) behind Traefik/Authelia | T004, T013, T012 | done | [tasks/T022.md](tasks/T022.md) |
-| T023 | Take-control / human-in-the-loop VNC handoff | T022, T020 | ready | [tasks/T023.md](tasks/T023.md) |
+| T023 | Take-control / human-in-the-loop VNC handoff | T022, T020 | done | [tasks/T023.md](tasks/T023.md) |
 | T024 | Minimal Agent Web UI (run, watch, pause, approve, history) | T011, T012, T020, T021 | ready | [tasks/T024.md](tasks/T024.md) |
 | T025 | End-to-end MVP smoke path and operator README | T015–T024 | todo | [tasks/T025.md](tasks/T025.md) |
 

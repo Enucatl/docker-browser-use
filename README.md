@@ -38,7 +38,7 @@ The `db` service (`postgres:18`) stays on the internal Compose network only — 
 
 The `browser` service runs headed Chromium on Xvfb with CDP on the internal network (`browser:9222`). It is not on `traefik_proxy` and does not publish CDP (9222) or VNC (5900) on the host. Persistent agent profile: volume `chrome_profile`. The controller attaches Browser Use on demand via `BrowserSessionManager` (CDP WebSocket host rewrite, idle detach, audit `browser_started`/`browser_stopped`). Runtime notes: [`docs/browser-runtime.md`](docs/browser-runtime.md).
 
-Live Chrome view: Authelia-gated noVNC at `https://browser-use.${DOCKER_DOMAIN}/vnc/` (sibling `novnc` service; view-only until T023). See [`docs/live-view.md`](docs/live-view.md).
+Live Chrome view: Authelia-gated noVNC at `https://browser-use.${DOCKER_DOMAIN}/vnc/` (sibling `novnc` service; view-only by default). Take-control mutex: [`docs/takeover.md`](docs/takeover.md). See [`docs/live-view.md`](docs/live-view.md).
 
 Artifact blobs (SHA-256 content-addressed, Zstd helpers for structured state) live on volume `artifacts_data` at `/var/lib/browser-use/artifacts` on the controller — not served by Traefik. See [`docs/artifacts.md`](docs/artifacts.md).
 

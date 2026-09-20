@@ -31,6 +31,7 @@ from browser_use_agent.agent.loop import (
     ScreenshotHook,
     ScreenshotHookWithReason,
 )
+from browser_use_agent.agent.takeover import wrap_browser_for_takeover
 from browser_use_agent.audit.browser_actions import BrowserActionWriter
 from browser_use_agent.audit.checkpoints import CheckpointWriter, load_checkpoint_settings
 from browser_use_agent.audit.model_calls import ModelCallWriter
@@ -334,6 +335,17 @@ class RunWorker:
                 finally:
                     check.close()
 
+            def is_awaiting_human() -> bool:
+                """Re-read run status for human takeover (T023)."""
+                check = self.session_factory()
+                try:
+                    row = check.get(Run, run_id)
+                    if row is None:
+                        return False
+                    return row.status == RunStatus.AWAITING_HUMAN.value
+                finally:
+                    check.close()
+
             def set_status(status: RunStatus) -> None:
                 """Persist a non-terminal status change from the loop."""
                 row = session.get(Run, run_id)
@@ -341,6 +353,9 @@ class RunWorker:
                     return
                 # Do not clobber an operator cancel that raced the gate.
                 if row.status == RunStatus.CANCELLED.value:
+                    return
+                # Do not clobber an active human takeover.
+                if row.status == RunStatus.AWAITING_HUMAN.value:
                     return
                 now = datetime.now(UTC)
                 row.status = status.value
@@ -415,7 +430,7 @@ class RunWorker:
             loop = AgentLoop(
                 run_id=run_id,
                 goal=goal,
-                browser=browser,
+                browser=wrap_browser_for_takeover(browser, is_awaiting_human),
                 jev=self.jev_factory(),
                 text_llm=self.text_llm_factory(),
                 audit=audit,
@@ -432,6 +447,7 @@ class RunWorker:
                 screenshot=screenshot,
                 is_cancelled=is_cancelled,
                 is_paused=is_paused,
+                is_awaiting_human=is_awaiting_human,
                 control_signals=signals,
                 consume_step_retry=signals.consume_step_retry,
                 commit=session.commit,
@@ -485,6 +501,10 @@ class RunWorker:
             return
         # Do not clobber an operator pause with a waiting/non-terminal outcome.
         if run.status == RunStatus.PAUSED.value and outcome.status == RunStatus.RUNNING:
+            session.commit()
+            return
+        # Do not clobber an active human takeover with a waiting/non-terminal outcome.
+        if run.status == RunStatus.AWAITING_HUMAN.value and outcome.status == RunStatus.RUNNING:
             session.commit()
             return
         # Reject API already marked failed; keep finished_at from that path.

@@ -19,6 +19,7 @@ from browser_use_agent.services.runs import (
     retry_run,
     stop_run,
 )
+from browser_use_agent.services.takeover import release_control, take_control
 
 __all__ = [
     "RunControlError",
@@ -33,7 +34,9 @@ __all__ = [
     "mark_approval_timed_out",
     "pause_run",
     "reject_run",
+    "release_control",
     "resume_run",
     "retry_run",
     "stop_run",
+    "take_control",
 ]

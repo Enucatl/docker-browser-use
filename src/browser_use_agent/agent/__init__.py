@@ -30,6 +30,15 @@ from browser_use_agent.agent.loop import (
     NeedsApprovalHook,
     ScreenshotHook,
 )
+from browser_use_agent.agent.takeover import (
+    TakeoverActiveError,
+    TakeoverGuardedBrowserPort,
+    is_releasable,
+    is_takeoverable,
+    status_is_human_control,
+    wait_while_awaiting_human,
+    wrap_browser_for_takeover,
+)
 from browser_use_agent.agent.worker import RunWorker, RunWorkerSettings, load_run_worker_settings
 
 __all__ = [
@@ -50,12 +59,19 @@ __all__ = [
     "RunWorker",
     "RunWorkerSettings",
     "ScreenshotHook",
+    "TakeoverActiveError",
+    "TakeoverGuardedBrowserPort",
     "TypeTextBlockedError",
     "default_needs_approval",
     "get_control_hub",
+    "is_releasable",
+    "is_takeoverable",
     "load_approval_settings",
     "load_run_worker_settings",
     "needs_approval",
     "reset_control_hub_for_tests",
+    "status_is_human_control",
     "wait_for_approval_decision",
+    "wait_while_awaiting_human",
+    "wrap_browser_for_takeover",
 ]

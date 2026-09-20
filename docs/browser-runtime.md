@@ -62,10 +62,57 @@ and **nginx-light** listens on `0.0.0.0:${CDP_PORT}`, proxying with
 `Host: 127.0.0.1` and WebSocket upgrade support so `http://browser:9222` works for
 sibling services. Do not add host port mappings like `"9222:9222"`.
 
-Controller connection string (when T013 lands): `http://browser:9222`. CDP clients
-that follow `webSocketDebuggerUrl` may still see `127.0.0.1` in JSON; libraries such
-as Playwright rewrite the host from the browser URL — session manager should do the
-same if needed.
+Controller connection string: `http://browser:9222`. CDP clients that follow
+`webSocketDebuggerUrl` still see `127.0.0.1:9223` in `/json/version` JSON. The
+session manager (`browser_use_agent.browser`) rewrites that host/port to the
+peer CDP URL before attaching Browser Use (same idea as Playwright).
+
+## Session manager (T013)
+
+The controller owns `BrowserSessionManager`:
+
+- **Ensure Chrome** — wait for CDP health; optionally `docker compose up -d browser`
+  when `BROWSER_COMPOSE_CONTROL=true` (requires Docker CLI access from the
+  controller, e.g. a docker.sock mount — off by default).
+- **Attach** — Browser Use connects with `is_local=False` and `keep_alive=True`
+  against the rewritten WebSocket URL. Chromium already uses
+  `CHROME_USER_DATA_DIR` on volume `chrome_profile`.
+- **Single interactive session** — a second run gets `BrowserSessionBusyError`.
+- **Idle TTL** — after release, `BROWSER_IDLE_TTL_SECONDS` (default 300) calls
+  Browser Use `stop()` (detach only; does **not** `kill()` Chromium), so the
+  persistent profile is not corrupted. Optional `BROWSER_STOP_ON_IDLE` can stop
+  the Compose service when compose control started it.
+- **Audit** — emits `browser_started` / `browser_stopped` when an `AuditWriter`
+  + DB session are available.
+- **Headless** — the worker stays headless until T022 (Xvfb + noVNC).
+
+Env (controller): `BROWSER_CDP_URL`, `BROWSER_PROFILE_NAME`, `CHROME_USER_DATA_DIR`,
+`CHROME_DOWNLOAD_DIR`, `BROWSER_IDLE_TTL_SECONDS`, `BROWSER_COMPOSE_CONTROL`,
+`BROWSER_STOP_ON_IDLE`. Downloads volume is mounted on the controller at
+`/data/downloads` for later artifact ingestion.
+
+### about:blank smoke
+
+With the browser service healthy on the internal network:
+
+```bash
+docker compose up -d browser
+# From a peer on the Compose network (example using the project venv):
+docker run --rm --network browser-use_default \
+  -v /opt/docker/browser-use:/app -w /app \
+  -v "$HOME/.local/share/uv/python:$HOME/.local/share/uv/python:ro" \
+  -e PYTHONPATH=/app/src -e BROWSER_CDP_URL=http://browser:9222 \
+  --entrypoint /app/.venv/bin/python \
+  python:3.14-slim-bookworm \
+  -c 'import asyncio; from browser_use_agent.browser import BrowserSessionManager, load_browser_settings; \
+print(asyncio.run(BrowserSessionManager(load_browser_settings()).smoke_about_blank()))'
+```
+
+Or pytest (skips when CDP is down):
+
+```bash
+BROWSER_CDP_URL=http://browser:9222 uv run pytest -m integration tests/test_browser_session.py
+```
 
 ## Smoke test
 
@@ -86,6 +133,5 @@ docker compose exec browser curl -sf http://127.0.0.1:9222/json/version
 ## Future (not in this image yet)
 
 - **Xvfb + noVNC** for a live view (T022)
-- **Browser Use session manager** starting/stopping Chrome on demand (T013)
 - **Bitwarden** extension in the profile volume (T026)
 - Multi-profile Personal / Work / Testing (T031)

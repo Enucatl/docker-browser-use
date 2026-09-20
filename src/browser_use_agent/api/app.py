@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -12,7 +15,8 @@ from browser_use_agent.api.csrf import CsrfOriginMiddleware
 from browser_use_agent.api.events_bus import get_event_bus
 from browser_use_agent.api.routes.runs import router as runs_router
 from browser_use_agent.api.ws import router as ws_router
-from browser_use_agent.audit.writer import set_append_hook
+from browser_use_agent.audit.writer import AuditWriter, set_append_hook
+from browser_use_agent.browser.session import BrowserSessionManager
 from browser_use_agent.config import AppSettings, load_app_settings
 from browser_use_agent.db.engine import create_engine_from_settings
 from browser_use_agent.db.models import AgentEvent
@@ -42,7 +46,16 @@ def create_app(
         Configured :class:`~fastapi.FastAPI` instance.
     """
     resolved = settings if settings is not None else load_app_settings()
-    app = FastAPI(title="browser-use agent controller", version="0.1.0")
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        """Detach Browser Use on shutdown without killing Chromium."""
+        yield
+        manager: BrowserSessionManager | None = getattr(app.state, "browser_session_manager", None)
+        if manager is not None:
+            await manager.shutdown()
+
+    app = FastAPI(title="browser-use agent controller", version="0.1.0", lifespan=lifespan)
     app.state.settings = resolved
     app.state.event_bus = get_event_bus()
     set_append_hook(_bridge_audit_to_event_bus)
@@ -62,6 +75,12 @@ def create_app(
     else:
         app.state.engine = None
         app.state.session_factory = None
+
+    app.state.browser_session_manager = BrowserSessionManager(
+        resolved.browser,
+        audit_factory=AuditWriter if db_engine is not None else None,
+        session_factory=app.state.session_factory,
+    )
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

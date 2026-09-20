@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+from browser_use_agent.browser.settings import BrowserSettings, load_browser_settings
 from browser_use_agent.db.settings import DatabaseSettings, load_database_settings
 
 
@@ -103,6 +104,7 @@ class AppSettings:
         host: Bind address for uvicorn.
         port: Bind port (Traefik loadbalancer target).
         database: Postgres connection settings when configured.
+        browser: CDP / profile settings for Browser Use sessions.
         auth_required: When true, API/WS require Authelia ``Remote-User``.
             Compose production sets this true; leave false for local pytest.
         allowed_hosts: Hostnames accepted by TrustedHost middleware.
@@ -112,6 +114,7 @@ class AppSettings:
     host: str
     port: int
     database: DatabaseSettings | None
+    browser: BrowserSettings = field(default_factory=load_browser_settings)
     auth_required: bool = False
     allowed_hosts: tuple[str, ...] = ()
     csrf_trusted_origins: tuple[str, ...] = ()
@@ -145,6 +148,7 @@ def load_app_settings() -> AppSettings:
         host=host,
         port=int(port_raw),
         database=load_database_settings(),
+        browser=load_browser_settings(),
         auth_required=auth_required,
         allowed_hosts=allowed,
         csrf_trusted_origins=origins,

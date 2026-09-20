@@ -29,6 +29,15 @@ services:
       - DATABASE_PASSWORD_FILE=/run/secrets/postgres_password
       # Content-addressed blobs; not exposed via Traefik (see docs/artifacts.md).
       - ARTIFACTS_ROOT=/var/lib/browser-use/artifacts
+      # Browser Use session manager (T013): CDP is Compose-internal only.
+      - BROWSER_CDP_URL=http://browser:9222
+      - BROWSER_PROFILE_NAME=default
+      - CHROME_USER_DATA_DIR=/data/chrome-profile
+      - CHROME_DOWNLOAD_DIR=/data/downloads
+      - BROWSER_IDLE_TTL_SECONDS=${BROWSER_IDLE_TTL_SECONDS:-300}
+      # Optional: start/stop the browser service via docker CLI (needs socket mount).
+      - BROWSER_COMPOSE_CONTROL=${BROWSER_COMPOSE_CONTROL:-false}
+      - BROWSER_STOP_ON_IDLE=${BROWSER_STOP_ON_IDLE:-false}
     restart: unless-stopped
     labels:
       - "traefik.enable=true"
@@ -56,6 +65,8 @@ services:
     volumes:
       - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
       - artifacts_data:/var/lib/browser-use/artifacts
+      # Shared with browser for download ingestion (session manager downloads_path).
+      - browser_downloads:/data/downloads
     secrets:
       - postgres_password
     networks:
@@ -64,6 +75,11 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      # CDP peer on the internal network. Controller can start without Chrome when
+      # using compose control; healthy browser is the default warm path.
+      browser:
+        condition: service_healthy
+        required: false
 
   # Internal Chromium/CDP worker. Not on traefik_proxy; CDP is not host-published.
   # Hardening: limits-xlarge (not hardened-*) — see docs/browser-runtime.md.

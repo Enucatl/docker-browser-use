@@ -50,7 +50,7 @@ Status values: `todo` · `ready` · `blocked` · `in_progress` · `done` · `can
 | T010 | Agent controller FastAPI: run lifecycle API | T003, T006 | done | [tasks/T010.md](tasks/T010.md) |
 | T011 | WebSocket run progress and live event stream | T010 | done | [tasks/T011.md](tasks/T011.md) |
 | T012 | Authelia `Remote-User` trust and CSRF/origin hardening | T010, T002 | done | [tasks/T012.md](tasks/T012.md) |
-| T013 | Browser Use session manager (on-demand Chrome, persistent profile) | T004, T010 | ready | [tasks/T013.md](tasks/T013.md) |
+| T013 | Browser Use session manager (on-demand Chrome, persistent profile) | T004, T010 | done | [tasks/T013.md](tasks/T013.md) |
 | T014 | Jev action space + Browser Use ↔ Jev adapter | T001 | ready | [tasks/T014.md](tasks/T014.md) |
 | T015 | Observe → Jev → execute control loop with audit hooks | T009, T013, T014 | todo | [tasks/T015.md](tasks/T015.md) |
 | T016 | Small text LLM gate for `TYPE_TEXT` only | T015 | todo | [tasks/T016.md](tasks/T016.md) |
@@ -59,7 +59,7 @@ Status values: `todo` · `ready` · `blocked` · `in_progress` · `done` · `can
 | T019 | Screenshot policy (WebP/JPEG, event-driven capture) | T007, T015 | todo | [tasks/T019.md](tasks/T019.md) |
 | T020 | Pause, resume, cancel, and retry controls | T010, T015 | todo | [tasks/T020.md](tasks/T020.md) |
 | T021 | Human approval gates for high-impact actions | T011, T015, T020 | todo | [tasks/T021.md](tasks/T021.md) |
-| T022 | Live agent Chrome view (Xvfb + noVNC) behind Traefik/Authelia | T004, T013, T012 | todo | [tasks/T022.md](tasks/T022.md) |
+| T022 | Live agent Chrome view (Xvfb + noVNC) behind Traefik/Authelia | T004, T013, T012 | ready | [tasks/T022.md](tasks/T022.md) |
 | T023 | Take-control / human-in-the-loop VNC handoff | T022, T020 | todo | [tasks/T023.md](tasks/T023.md) |
 | T024 | Minimal Agent Web UI (run, watch, pause, approve, history) | T011, T012, T020, T021 | todo | [tasks/T024.md](tasks/T024.md) |
 | T025 | End-to-end MVP smoke path and operator README | T015–T024 | todo | [tasks/T025.md](tasks/T025.md) |
@@ -68,7 +68,7 @@ Status values: `todo` · `ready` · `blocked` · `in_progress` · `done` · `can
 
 | ID | Title | Depends | Status | Guide |
 | --- | --- | --- | --- | --- |
-| T026 | Install Bitwarden into the persistent Chrome profile | T013 | todo | [tasks/T026.md](tasks/T026.md) |
+| T026 | Install Bitwarden into the persistent Chrome profile | T013 | ready | [tasks/T026.md](tasks/T026.md) |
 | T027 | Explicit Bitwarden actions (`LOGIN` / `IDENTITY` / `CARD`) | T015, T026, T008 | todo | [tasks/T027.md](tasks/T027.md) |
 | T028 | Richer approval policy engine (rules + UI reasons) | T021 | todo | [tasks/T028.md](tasks/T028.md) |
 | T029 | Cost entries and simple cost dashboard API/UI | T017, T024 | todo | [tasks/T029.md](tasks/T029.md) |

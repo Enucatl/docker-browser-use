@@ -33,8 +33,8 @@ Status values: `todo` · `ready` · `blocked` · `in_progress` · `done` · `can
 
 | ID | Title | Depends | Status | Guide |
 | --- | --- | --- | --- | --- |
-| T001 | Python project scaffold (uv, src layout, tooling) | — | ready | [tasks/T001.md](tasks/T001.md) |
-| T002 | Compose stack skeleton: networks, Traefik, Authelia, hardening | T001 | todo | [tasks/T002.md](tasks/T002.md) |
+| T001 | Python project scaffold (uv, src layout, tooling) | — | done | [tasks/T001.md](tasks/T001.md) |
+| T002 | Compose stack skeleton: networks, Traefik, Authelia, hardening | T001 | ready | [tasks/T002.md](tasks/T002.md) |
 | T003 | PostgreSQL service, secrets, and app DB wiring | T002 | todo | [tasks/T003.md](tasks/T003.md) |
 | T004 | Chromium/browser worker image and hardened runtime profile | T002 | todo | [tasks/T004.md](tasks/T004.md) |
 | T005 | Docker CI via compose-security-baseline reusable workflow | T002 | todo | [tasks/T005.md](tasks/T005.md) |

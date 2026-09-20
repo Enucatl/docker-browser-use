@@ -1,0 +1,44 @@
+[build-system]
+requires = ["uv_build>=0.12.12,<0.13"]
+build-backend = "uv_build"
+
+[project]
+name = "browser-use-agent"
+version = "0.1.0"
+description = "Always-on self-hosted browser-agent service"
+readme = "README.md"
+requires-python = ">=3.14"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Enucatl", email = "1423701+Enucatl@users.noreply.github.com" },
+]
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[project.optional-dependencies]
+# Populated by later tasks (FastAPI, Browser Use, etc.).
+web = []
+browser = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = [
+    "B",
+    "E",
+    "F",
+    "I",
+    "RUF",
+    "UP",
+]

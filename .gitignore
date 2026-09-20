@@ -216,3 +216,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project / runtime
+secrets/
+artifacts/
+data/
+*.webp
+*.jpg
+*.jpeg
+*.png
+!docs/**/*.png
+.python-version

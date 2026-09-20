@@ -14,6 +14,7 @@ from typing import Any
 from sqlalchemy.orm import Session, sessionmaker
 
 from browser_use_agent.agent.browser_port import BrowserPort, BrowserUsePort
+from browser_use_agent.agent.controls import get_control_hub
 from browser_use_agent.agent.loop import (
     AgentLoop,
     CheckpointHook,
@@ -135,8 +136,9 @@ def default_text_llm_factory() -> TextLLMClient | None:
 class RunWorker:
     """Orchestrates agent loops: one task per run, global concurrency cap.
 
-    Started when a run enters ``running``. Cooperative cancellation reads the
-    run's persisted status between loop phases (T020 will add richer controls).
+    Started when a run enters ``running``. Cooperative pause/cancel/retry read
+    the run's persisted status between loop phases (see
+    :mod:`browser_use_agent.agent.controls`).
 
     Attributes:
         settings: Concurrency and step caps.
@@ -303,7 +305,7 @@ class RunWorker:
                 browser = BrowserUsePort(bu_session)
 
             def is_cancelled() -> bool:
-                """Re-read run status for cooperative cancel (T020)."""
+                """Re-read run status for cooperative cancel."""
                 check = self.session_factory()
                 try:
                     row = check.get(Run, run_id)
@@ -312,6 +314,23 @@ class RunWorker:
                     return row.status == RunStatus.CANCELLED.value
                 finally:
                     check.close()
+
+            def is_paused() -> bool:
+                """Re-read run status for cooperative pause."""
+                check = self.session_factory()
+                try:
+                    row = check.get(Run, run_id)
+                    if row is None:
+                        return False
+                    return row.status == RunStatus.PAUSED.value
+                finally:
+                    check.close()
+
+            signals = get_control_hub().signals_for(run_id)
+            try:
+                signals.bind_loop(asyncio.get_running_loop())
+            except RuntimeError:
+                pass
 
             checkpoint = self.checkpoint
             if checkpoint is None and self._auto_checkpoint and store is not None:
@@ -353,10 +372,14 @@ class RunWorker:
                 checkpoint=checkpoint,
                 screenshot=screenshot,
                 is_cancelled=is_cancelled,
+                is_paused=is_paused,
+                control_signals=signals,
+                consume_step_retry=signals.consume_step_retry,
                 commit=session.commit,
             )
             outcome = await loop.run()
             self._persist_outcome(session, run_id, outcome)
+            get_control_hub().discard(run_id)
             return outcome
         except Exception as exc:
             logger.exception("Run %s aborted", run_id)
@@ -375,6 +398,7 @@ class RunWorker:
             except Exception:
                 session.rollback()
                 logger.exception("Failed to persist abort status for run %s", run_id)
+            get_control_hub().discard(run_id)
             raise
         finally:
             if browser_held and self.browser_manager is not None:
@@ -398,6 +422,10 @@ class RunWorker:
             return
         # Do not overwrite an operator cancel that raced the loop finish.
         if run.status == RunStatus.CANCELLED.value and outcome.status != RunStatus.CANCELLED:
+            session.commit()
+            return
+        # Do not clobber an operator pause with a waiting/non-terminal outcome.
+        if run.status == RunStatus.PAUSED.value and outcome.status == RunStatus.RUNNING:
             session.commit()
             return
         now = datetime.now(UTC)

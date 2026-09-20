@@ -7,6 +7,7 @@ checks cancellation between phases.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
@@ -16,6 +17,7 @@ from datetime import datetime
 from typing import Any, Protocol
 
 from browser_use_agent.agent.browser_port import BrowserPort, TypeTextBlockedError
+from browser_use_agent.agent.controls import RunControlSignals, wait_while_paused
 from browser_use_agent.audit.browser_actions import BrowserActionWriter
 from browser_use_agent.audit.model_calls import ModelCallWriter
 from browser_use_agent.audit.screenshots import is_destructive_action
@@ -47,6 +49,8 @@ CheckpointHookWithReason = Callable[
 ScreenshotHook = CheckpointHook
 ScreenshotHookWithReason = CheckpointHookWithReason
 CancelCheck = Callable[[], bool | Awaitable[bool]]
+PauseCheck = Callable[[], bool | Awaitable[bool]]
+RetryConsume = Callable[[], bool]
 
 
 class AgentLoopError(RuntimeError):
@@ -123,6 +127,9 @@ class AgentLoop:
         checkpoint: Optional T018 hook; skipped when ``None``.
         screenshot: Optional T019 hook; skipped when ``None``.
         is_cancelled: Cooperative cancel check between phases.
+        is_paused: Cooperative pause check; when True the loop parks.
+        control_signals: In-process wakeups for pause/resume (T020).
+        consume_step_retry: Returns True once when a step retry was armed.
     """
 
     def __init__(
@@ -142,6 +149,9 @@ class AgentLoop:
         checkpoint: CheckpointHook | CheckpointHookWithReason | None = None,
         screenshot: ScreenshotHook | ScreenshotHookWithReason | None = None,
         is_cancelled: CancelCheck | None = None,
+        is_paused: PauseCheck | None = None,
+        control_signals: RunControlSignals | None = None,
+        consume_step_retry: RetryConsume | None = None,
         commit: Callable[[], None] | None = None,
     ) -> None:
         """Create a control loop for one run.
@@ -163,6 +173,9 @@ class AgentLoop:
             screenshot: Optional screenshot writer (T019). Same call shape as
                 ``checkpoint``; forced on approval/error/destructive actions.
             is_cancelled: Returns True when the run should stop cooperatively.
+            is_paused: Returns True when the run should park until resume.
+            control_signals: Optional in-process wake hub entry for this run.
+            consume_step_retry: Optional one-shot retry arm consumer (T020).
             commit: Optional callback after each audit batch (e.g. session.commit).
         """
         self.run_id = run_id
@@ -179,6 +192,9 @@ class AgentLoop:
         self.checkpoint = checkpoint
         self.screenshot = screenshot
         self.is_cancelled = is_cancelled
+        self.is_paused = is_paused
+        self.control_signals = control_signals
+        self.consume_step_retry = consume_step_retry
         self._commit = commit
         self._history: list[str] = []
 
@@ -200,21 +216,13 @@ class AgentLoop:
         last_step_id: uuid.UUID | None = None
 
         while steps < self.max_steps:
-            if await self._cancelled():
-                self.audit.append(
-                    self.run_id,
-                    "run_cancelled",
-                    {"reason": "cooperative_cancel", "steps_completed": steps},
-                    actor="system",
-                    step_id=last_step_id,
-                )
-                self._flush()
-                return LoopOutcome(
-                    status=RunStatus.CANCELLED,
-                    message="cancelled",
-                    steps_completed=steps,
-                    last_step_id=last_step_id,
-                )
+            gate = await self._control_gate(
+                reason="between_steps",
+                step_id=last_step_id,
+                steps_completed=steps,
+            )
+            if gate is not None:
+                return gate
 
             step_id = uuid.uuid4()
             last_step_id = step_id
@@ -313,16 +321,14 @@ class AgentLoop:
         Returns:
             A :class:`LoopOutcome` when the run should stop; otherwise ``None``.
         """
-        if await self._cancelled():
-            self.audit.append(
-                self.run_id,
-                "run_cancelled",
-                {"reason": "cooperative_cancel_before_observe", "step_number": step_number},
-                actor="system",
-                step_id=step_id,
-            )
-            self._flush()
-            return LoopOutcome(status=RunStatus.CANCELLED, message="cancelled")
+        gate = await self._control_gate(
+            reason="before_observe",
+            step_id=step_id,
+            steps_completed=step_number - 1,
+            step_number=step_number,
+        )
+        if gate is not None:
+            return gate
 
         # --- observe ---
         t0 = time.perf_counter()
@@ -342,16 +348,14 @@ class AgentLoop:
         await self._maybe_checkpoint(step_id, observation)
         await self._maybe_screenshot(step_id, observation)
 
-        if await self._cancelled():
-            self.audit.append(
-                self.run_id,
-                "run_cancelled",
-                {"reason": "cooperative_cancel_before_decide", "step_number": step_number},
-                actor="system",
-                step_id=step_id,
-            )
-            self._flush()
-            return LoopOutcome(status=RunStatus.CANCELLED, message="cancelled")
+        gate = await self._control_gate(
+            reason="before_decide",
+            step_id=step_id,
+            steps_completed=step_number - 1,
+            step_number=step_number,
+        )
+        if gate is not None:
+            return gate
 
         # --- Jev decide ---
         history_summary = " | ".join(self._history[-8:])
@@ -414,16 +418,14 @@ class AgentLoop:
                 last_step_id=step_id,
             )
 
-        if await self._cancelled():
-            self.audit.append(
-                self.run_id,
-                "run_cancelled",
-                {"reason": "cooperative_cancel_before_execute", "step_number": step_number},
-                actor="system",
-                step_id=step_id,
-            )
-            self._flush()
-            return LoopOutcome(status=RunStatus.CANCELLED, message="cancelled")
+        gate = await self._control_gate(
+            reason="before_execute",
+            step_id=step_id,
+            steps_completed=step_number - 1,
+            step_number=step_number,
+        )
+        if gate is not None:
+            return gate
 
         # --- text LLM gate (TYPE_TEXT only) ---
         self._fill_type_text_if_needed(action, observation=observation, step_id=step_id)
@@ -521,6 +523,21 @@ class AgentLoop:
                 duration_ms=exec_ms,
                 exec_meta=result.metadata,
             )
+            if self._should_retry_step():
+                self.audit.append(
+                    self.run_id,
+                    "step_retry",
+                    {
+                        "kind": action.kind.value,
+                        "error": result.error,
+                        "step_number": step_number,
+                    },
+                    actor="system",
+                    step_id=step_id,
+                )
+                self._flush()
+                # Continue the outer loop: fresh observe → decide.
+                return None
             self.audit.append(
                 self.run_id,
                 "run_failed",
@@ -779,6 +796,133 @@ class AgentLoop:
             metadata=meta,
         )
 
+    async def _control_gate(
+        self,
+        *,
+        reason: str,
+        step_id: uuid.UUID | None,
+        steps_completed: int,
+        step_number: int | None = None,
+    ) -> LoopOutcome | None:
+        """Honor pause (park) and cancel between loop phases.
+
+        Args:
+            reason: Short label for audit when cancelling.
+            step_id: Current or last step id for audit.
+            steps_completed: Steps finished so far.
+            step_number: Optional 1-based step counter for mid-step cancels.
+
+        Returns:
+            A cancel :class:`LoopOutcome` when stopping; otherwise ``None``.
+        """
+        if await self._cancelled():
+            payload: dict[str, Any] = {
+                "reason": f"cooperative_cancel_{reason}",
+                "steps_completed": steps_completed,
+            }
+            if step_number is not None:
+                payload["step_number"] = step_number
+            self.audit.append(
+                self.run_id,
+                "run_cancelled",
+                payload,
+                actor="system",
+                step_id=step_id,
+            )
+            self._flush()
+            return LoopOutcome(
+                status=RunStatus.CANCELLED,
+                message="cancelled",
+                steps_completed=steps_completed,
+                last_step_id=step_id,
+            )
+
+        if self.is_paused is not None and self.control_signals is not None:
+            cancelled = await wait_while_paused(
+                is_paused=self.is_paused,
+                is_cancelled=self.is_cancelled or (lambda: False),
+                signals=self.control_signals,
+            )
+            if cancelled:
+                payload = {
+                    "reason": f"cooperative_cancel_while_paused_{reason}",
+                    "steps_completed": steps_completed,
+                }
+                if step_number is not None:
+                    payload["step_number"] = step_number
+                self.audit.append(
+                    self.run_id,
+                    "run_cancelled",
+                    payload,
+                    actor="system",
+                    step_id=step_id,
+                )
+                self._flush()
+                return LoopOutcome(
+                    status=RunStatus.CANCELLED,
+                    message="cancelled",
+                    steps_completed=steps_completed,
+                    last_step_id=step_id,
+                )
+        elif self.is_paused is not None:
+            # No in-process signals: poll pause until clear or cancel.
+            while await self._paused():
+                if await self._cancelled():
+                    payload = {
+                        "reason": f"cooperative_cancel_while_paused_{reason}",
+                        "steps_completed": steps_completed,
+                    }
+                    if step_number is not None:
+                        payload["step_number"] = step_number
+                    self.audit.append(
+                        self.run_id,
+                        "run_cancelled",
+                        payload,
+                        actor="system",
+                        step_id=step_id,
+                    )
+                    self._flush()
+                    return LoopOutcome(
+                        status=RunStatus.CANCELLED,
+                        message="cancelled",
+                        steps_completed=steps_completed,
+                        last_step_id=step_id,
+                    )
+                await asyncio.sleep(0.05)
+
+        if await self._cancelled():
+            payload = {
+                "reason": f"cooperative_cancel_{reason}",
+                "steps_completed": steps_completed,
+            }
+            if step_number is not None:
+                payload["step_number"] = step_number
+            self.audit.append(
+                self.run_id,
+                "run_cancelled",
+                payload,
+                actor="system",
+                step_id=step_id,
+            )
+            self._flush()
+            return LoopOutcome(
+                status=RunStatus.CANCELLED,
+                message="cancelled",
+                steps_completed=steps_completed,
+                last_step_id=step_id,
+            )
+        return None
+
+    def _should_retry_step(self) -> bool:
+        """Return whether a failed execute should re-observe + decide.
+
+        Returns:
+            ``True`` when a one-shot step retry was armed.
+        """
+        if self.consume_step_retry is None:
+            return False
+        return bool(self.consume_step_retry())
+
     async def _cancelled(self) -> bool:
         """Return whether cooperative cancellation was requested.
 
@@ -788,6 +932,19 @@ class AgentLoop:
         if self.is_cancelled is None:
             return False
         result = self.is_cancelled()
+        if isinstance(result, Awaitable):
+            return bool(await result)
+        return bool(result)
+
+    async def _paused(self) -> bool:
+        """Return whether the run is paused.
+
+        Returns:
+            ``True`` when the pause check says park.
+        """
+        if self.is_paused is None:
+            return False
+        result = self.is_paused()
         if isinstance(result, Awaitable):
             return bool(await result)
         return bool(result)

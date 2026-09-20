@@ -106,7 +106,7 @@ def stop_run(
     run_id: uuid.UUID,
     session: Annotated[Session, Depends(get_session)],
 ) -> RunResponse:
-    """Stub stop: mark the run cancelled when not already terminal."""
+    """Cancel the run (alias of ``POST .../cancel``); worker exits cooperatively."""
     try:
         run = run_service.stop_run(session, run_id)
     except run_service.RunNotFoundError as exc:

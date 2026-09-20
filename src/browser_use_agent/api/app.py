@@ -14,6 +14,7 @@ from browser_use_agent.agent.worker import RunWorker, load_run_worker_settings
 from browser_use_agent.api.auth import RemoteUserAuthMiddleware
 from browser_use_agent.api.csrf import CsrfOriginMiddleware
 from browser_use_agent.api.events_bus import get_event_bus
+from browser_use_agent.api.routes.run_controls import router as run_controls_router
 from browser_use_agent.api.routes.runs import router as runs_router
 from browser_use_agent.api.ws import router as ws_router
 from browser_use_agent.audit.writer import AuditWriter, set_append_hook
@@ -97,6 +98,7 @@ def create_app(
         return {"status": "ok"}
 
     app.include_router(runs_router)
+    app.include_router(run_controls_router)
     app.include_router(ws_router)
 
     # Middleware is applied outermost-last: TrustedHost → CSRF → Remote-User → routes.

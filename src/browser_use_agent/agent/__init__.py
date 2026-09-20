@@ -7,6 +7,12 @@ from browser_use_agent.agent.browser_port import (
     FakeBrowserPort,
     TypeTextBlockedError,
 )
+from browser_use_agent.agent.controls import (
+    RunControlHub,
+    RunControlSignals,
+    get_control_hub,
+    reset_control_hub_for_tests,
+)
 from browser_use_agent.agent.loop import (
     AgentLoop,
     AgentLoopError,
@@ -28,10 +34,14 @@ __all__ = [
     "FakeBrowserPort",
     "LoopOutcome",
     "NeedsApprovalHook",
+    "RunControlHub",
+    "RunControlSignals",
     "RunWorker",
     "RunWorkerSettings",
     "ScreenshotHook",
     "TypeTextBlockedError",
     "default_needs_approval",
+    "get_control_hub",
     "load_run_worker_settings",
+    "reset_control_hub_for_tests",
 ]

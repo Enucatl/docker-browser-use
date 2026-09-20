@@ -25,7 +25,7 @@ cp .env.example .env
 docker compose config
 ```
 
-Public URL: `https://browser-use.${DOCKER_DOMAIN}` behind Traefik with middlewares `authelia@docker,secured@file`. Authelia’s wildcard `*.docker.home.arpa` rule already allows `group:admins`; no Authelia config change is required for this stack.
+Public URL: `https://browser-use.${DOCKER_DOMAIN}` behind Traefik with middlewares `authelia@docker,secured@file`. Authelia’s wildcard `*.docker.home.arpa` rule already allows `group:admins`; no Authelia config change is required for this stack. The controller trusts Authelia `Remote-User` headers when `AUTH_REQUIRED=true` (Compose default) and checks CSRF trusted origins — see [`docs/auth.md`](docs/auth.md).
 
 Secrets belong under [`secrets/`](secrets/) (gitignored except `.gitkeep` / README). Generate the Postgres password before first `compose up`:
 

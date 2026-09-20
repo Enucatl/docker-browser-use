@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from browser_use_agent.api.auth import accept_websocket_identity
+from browser_use_agent.api.csrf import check_websocket_origin
 from browser_use_agent.api.events_bus import (
     RunEventMessage,
     get_event_bus,
@@ -88,6 +89,14 @@ async def run_events_ws(
     Auth: see :mod:`browser_use_agent.api.auth` and ``docs/ws-events.md``.
     """
     settings: AppSettings = websocket.app.state.settings
+    if not check_websocket_origin(
+        websocket,
+        trusted_origins=settings.csrf_trusted_origins,
+        enforce=settings.auth_required,
+    ):
+        await websocket.close(code=4403, reason="Origin not trusted")
+        return
+
     identity = await accept_websocket_identity(websocket, auth_required=settings.auth_required)
     if identity is None:
         return
@@ -123,7 +132,7 @@ async def run_events_ws(
             RunEventMessage(
                 type="replay_start",
                 run_id=run_id,
-                detail=f"identity={identity.user}",
+                detail=f"identity={identity.username}",
             ).to_dict()
         )
         for event in replay:

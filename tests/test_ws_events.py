@@ -244,7 +244,7 @@ def test_ws_redacts_secrets_in_live_payload(api_client: TestClient) -> None:
 def test_ws_auth_required_rejects_anonymous(
     postgres_url: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """AUTH_REQUIRED rejects WS without Remote-User (T012-compatible stub)."""
+    """AUTH_REQUIRED rejects WS and REST without Remote-User."""
     monkeypatch.delenv("DATABASE_HOST", raising=False)
     monkeypatch.setenv("DATABASE_URL", postgres_url)
     upgrade_head(database_url=postgres_url)
@@ -254,18 +254,25 @@ def test_ws_auth_required_rejects_anonymous(
         conn.execute(text("TRUNCATE runs CASCADE"))
 
     reset_event_bus_for_tests()
-    settings = AppSettings(host="127.0.0.1", port=8000, database=None, auth_required=True)
+    settings = AppSettings(
+        host="127.0.0.1",
+        port=8000,
+        database=None,
+        auth_required=True,
+        csrf_trusted_origins=(),
+    )
     app = create_app(settings, engine=engine)
     try:
         with TestClient(app) as client:
+            denied = client.post("/api/runs", json={"goal": "auth"})
+            assert denied.status_code == 401
+
             created = client.post(
                 "/api/runs",
                 json={"goal": "auth"},
                 headers={"Remote-User": "admin"},
             )
-            # REST is not gated yet (T012); create may succeed without header.
-            if created.status_code != 201:
-                created = client.post("/api/runs", json={"goal": "auth"})
+            assert created.status_code == 201
             run_id = created.json()["id"]
 
             with pytest.raises(WebSocketDisconnect) as exc_info:

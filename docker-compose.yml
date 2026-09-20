@@ -17,6 +17,11 @@ services:
       - TZ=${TZ:-Europe/Zurich}
       - SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
       - BROWSER_USE_HOST=browser-use.${DOCKER_DOMAIN}
+      # Prod: require Authelia Remote-User; trusted host/origin match Traefik.
+      # Do not set AUTH_REQUIRED=false here — local pytest defaults to false.
+      - AUTH_REQUIRED=true
+      - ALLOWED_HOSTS=browser-use.${DOCKER_DOMAIN},localhost,127.0.0.1
+      - CSRF_TRUSTED_ORIGINS=https://browser-use.${DOCKER_DOMAIN}
       - DATABASE_HOST=db
       - DATABASE_PORT=5432
       - DATABASE_NAME=${DATABASE_NAME:-browser_use}

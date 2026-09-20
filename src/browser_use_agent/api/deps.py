@@ -1,13 +1,18 @@
-"""FastAPI dependencies for database sessions and settings."""
+"""FastAPI dependencies for database sessions, settings, and auth."""
 
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import Annotated
 
-from fastapi import Request
+from fastapi import Depends, Request
 from sqlalchemy.orm import Session, sessionmaker
 
+from browser_use_agent.api.auth import User, require_user
 from browser_use_agent.config import AppSettings
+
+# Dependency alias for routes that need the Authelia-backed principal.
+CurrentUser = Annotated[User, Depends(require_user)]
 
 
 def get_settings(request: Request) -> AppSettings:

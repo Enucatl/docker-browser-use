@@ -5,7 +5,10 @@ from __future__ import annotations
 from fastapi import FastAPI
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from browser_use_agent.api.auth import RemoteUserAuthMiddleware
+from browser_use_agent.api.csrf import CsrfOriginMiddleware
 from browser_use_agent.api.events_bus import get_event_bus
 from browser_use_agent.api.routes.runs import router as runs_router
 from browser_use_agent.api.ws import router as ws_router
@@ -67,4 +70,19 @@ def create_app(
 
     app.include_router(runs_router)
     app.include_router(ws_router)
+
+    # Middleware is applied outermost-last: TrustedHost → CSRF → Remote-User → routes.
+    app.add_middleware(RemoteUserAuthMiddleware, auth_required=resolved.auth_required)
+    app.add_middleware(
+        CsrfOriginMiddleware,
+        trusted_origins=resolved.csrf_trusted_origins,
+        enforce=resolved.auth_required,
+    )
+    # Host checks only in prod-like mode so local TestClient (Host: testserver) works.
+    if resolved.auth_required and resolved.allowed_hosts:
+        app.add_middleware(
+            TrustedHostMiddleware,
+            allowed_hosts=list(resolved.allowed_hosts),
+        )
+
     return app

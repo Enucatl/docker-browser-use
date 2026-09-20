@@ -60,16 +60,15 @@ blobs from the artifact store (see `docs/artifacts.md`).
 Live delivery uses an **in-process** pub/sub bridged from `AuditWriter.append`
 (same worker). Multi-replica fan-out is out of scope for T011.
 
-## Auth stub (compatible with T012)
+## Auth (T012)
 
 | Mode | Env | Behavior |
 | --- | --- | --- |
 | Local / tests | `AUTH_REQUIRED=false` (default) | Accept `Remote-User`, else `X-Browser-Use-Dev-User`, else identity `anonymous` |
-| Prod (T012) | `AUTH_REQUIRED=true` | Require Authelia `Remote-User`; reject otherwise (WS close `4401`) |
+| Prod (Compose) | `AUTH_REQUIRED=true` | Require Authelia `Remote-User`; reject otherwise (WS close `4401`). Browser `Origin` must match `CSRF_TRUSTED_ORIGINS` when present. |
 
-Do **not** set `AUTH_REQUIRED=true` in local examples without a forward-auth
-path. Production compose will enable it once T012 trusts Traefik-injected
-headers only.
+Do **not** set `AUTH_REQUIRED=false` in production Compose. Details and the
+header spoofing model: [`docs/auth.md`](auth.md).
 
 ## Secrets
 

@@ -1,0 +1,54 @@
+services:
+  controller:
+    extends:
+      file: ../compose-security-baseline/hardening.yml
+      service: hardened-medium
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-0.0.0}
+    image: ghcr.io/enucatl/browser-use:latest
+    cpu_shares: 512
+    extra_hosts:
+      - "${DOCKER_DOMAIN}:host-gateway"
+      - "docker-host.internal:host-gateway"
+    environment:
+      - TZ=${TZ:-Europe/Zurich}
+      - SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+      - BROWSER_USE_HOST=browser-use.${DOCKER_DOMAIN}
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik_proxy"
+      - "traefik.http.routers.browser-use.rule=Host(`browser-use.${DOCKER_DOMAIN}`)"
+      - "traefik.http.routers.browser-use.entrypoints=https"
+      - "traefik.http.routers.browser-use.tls=true"
+      - "traefik.http.routers.browser-use.middlewares=authelia@docker,secured@file"
+      - "traefik.http.services.browser-use.loadbalancer.server.port=8000"
+    ports: []
+    healthcheck:
+      test:
+        [
+          "CMD",
+          ".venv/bin/python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,mode=1777,size=16m
+    volumes:
+      - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
+    networks:
+      - traefik_proxy
+      - default
+
+networks:
+  default:
+    internal: true
+  traefik_proxy:
+    external: true

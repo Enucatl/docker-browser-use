@@ -218,7 +218,9 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Project / runtime
-secrets/
+secrets/*
+!secrets/.gitkeep
+!secrets/README.md
 artifacts/
 data/
 *.webp

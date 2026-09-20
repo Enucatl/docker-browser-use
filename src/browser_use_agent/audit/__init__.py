@@ -1,0 +1,25 @@
+"""Append-only audit writer and per-run hash-chain verification."""
+
+from browser_use_agent.audit.hashchain import (
+    GENESIS_PREV_HASH,
+    canonicalize_event_fields,
+    canonicalize_value,
+    compute_event_hash,
+    event_hash_fields,
+    verify_events_chain,
+    verify_run_chain,
+)
+from browser_use_agent.audit.writer import Actor, AuditWriter, AuditWriterError
+
+__all__ = [
+    "GENESIS_PREV_HASH",
+    "Actor",
+    "AuditWriter",
+    "AuditWriterError",
+    "canonicalize_event_fields",
+    "canonicalize_value",
+    "compute_event_hash",
+    "event_hash_fields",
+    "verify_events_chain",
+    "verify_run_chain",
+]

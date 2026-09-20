@@ -11,11 +11,15 @@ Audit / event-sourcing schema lives in SQLAlchemy models under
 
 **Canonical timeline:** `agent_events` is append-only. Rows are never updated or
 deleted in normal operation (PostgreSQL triggers reject `UPDATE`/`DELETE`). Hash
-chaining columns (`prev_hash`, `event_hash`) are filled by the audit writer (T009).
-Normalized helper tables (`agent_decisions`, `model_calls`, …) support analysis
-without replacing the event stream. Artifact **blobs** live on volume
-`artifacts_data` (see [`docs/artifacts.md`](../docs/artifacts.md)); the
-`artifacts` table stores metadata only.
+chaining columns (`prev_hash`, `event_hash`) are filled by
+`browser_use_agent.audit.AuditWriter` (T009). Per-run SHA-256 chains use
+key-sorted UTC-canonical JSON; see the module docstring in
+`src/browser_use_agent/audit/hashchain.py`. Verify with
+`verify_run_chain(session, run_id)`. Normalized helper tables
+(`agent_decisions`, `model_calls`, …) support analysis without replacing the
+event stream. Artifact **blobs** live on volume `artifacts_data` (see
+[`docs/artifacts.md`](../docs/artifacts.md)); the `artifacts` table stores
+metadata only.
 
 Apply migrations (compose `db` healthy, `DATABASE_*` set):
 

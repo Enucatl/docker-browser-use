@@ -38,6 +38,8 @@ The `db` service (`postgres:18`) stays on the internal Compose network only — 
 
 The `browser` service runs Chromium with CDP on the same internal network (`browser:9222`). It is not on `traefik_proxy` and does not publish port 9222 on the host. Persistent agent profile: volume `chrome_profile`. Runtime hardening notes (why `limits-xlarge` instead of `hardened-*`): [`docs/browser-runtime.md`](docs/browser-runtime.md).
 
+Artifact blobs (SHA-256 content-addressed, Zstd helpers for structured state) live on volume `artifacts_data` at `/var/lib/browser-use/artifacts` on the controller — not served by Traefik. See [`docs/artifacts.md`](docs/artifacts.md).
+
 ```bash
 docker compose build browser
 docker compose run --rm --no-deps browser smoke

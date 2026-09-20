@@ -22,6 +22,8 @@ services:
       - DATABASE_NAME=${DATABASE_NAME:-browser_use}
       - DATABASE_USER=${DATABASE_USER:-browser_use}
       - DATABASE_PASSWORD_FILE=/run/secrets/postgres_password
+      # Content-addressed blobs; not exposed via Traefik (see docs/artifacts.md).
+      - ARTIFACTS_ROOT=/var/lib/browser-use/artifacts
     restart: unless-stopped
     labels:
       - "traefik.enable=true"
@@ -48,6 +50,7 @@ services:
       - /tmp:rw,nosuid,noexec,mode=1777,size=16m
     volumes:
       - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
+      - artifacts_data:/var/lib/browser-use/artifacts
     secrets:
       - postgres_password
     networks:
@@ -140,3 +143,6 @@ volumes:
   pgdata:
   chrome_profile:
   browser_downloads:
+  # Content-addressed audit blobs (screenshots, state, downloads). Controller only;
+  # never publish this path via Traefik. See docs/artifacts.md.
+  artifacts_data:

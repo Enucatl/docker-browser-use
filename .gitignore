@@ -221,7 +221,8 @@ __marimo__/
 secrets/*
 !secrets/.gitkeep
 !secrets/README.md
-artifacts/
+# Local blob dumps only (Python package is src/browser_use_agent/artifacts/)
+/artifacts/
 data/
 *.webp
 *.jpg

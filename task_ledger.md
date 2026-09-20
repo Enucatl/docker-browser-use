@@ -44,7 +44,7 @@ Status values: `todo` · `ready` · `blocked` · `in_progress` · `done` · `can
 | ID | Title | Depends | Status | Guide |
 | --- | --- | --- | --- | --- |
 | T006 | Event-sourcing schema and migrations | T003 | done | [tasks/T006.md](tasks/T006.md) |
-| T007 | Artifact store (filesystem, SHA-256 dedupe, Zstd payloads) | T003 | ready | [tasks/T007.md](tasks/T007.md) |
+| T007 | Artifact store (filesystem, SHA-256 dedupe, Zstd payloads) | T003 | done | [tasks/T007.md](tasks/T007.md) |
 | T008 | Secret redaction before any audit write | T001 | ready | [tasks/T008.md](tasks/T008.md) |
 | T009 | Audit event writer with hash chaining | T006, T008 | todo | [tasks/T009.md](tasks/T009.md) |
 | T010 | Agent controller FastAPI: run lifecycle API | T003, T006 | ready | [tasks/T010.md](tasks/T010.md) |
@@ -81,7 +81,7 @@ Status values: `todo` · `ready` · `blocked` · `in_progress` · `done` · `can
 | --- | --- | --- | --- | --- |
 | T032 | Offline Jev evaluation harness from recorded states | T014, T018 | todo | [tasks/T032.md](tasks/T032.md) |
 | T033 | Artifact retention policy and optional state diffs | T018, T019 | todo | [tasks/T033.md](tasks/T033.md) |
-| T034 | Optional MinIO backend for artifact storage | T007 | todo | [tasks/T034.md](tasks/T034.md) |
+| T034 | Optional MinIO backend for artifact storage | T007 | ready | [tasks/T034.md](tasks/T034.md) |
 | T035 | Periodic signed audit checkpoints | T009 | todo | [tasks/T035.md](tasks/T035.md) |
 
 ## Recommended dispatch order (critical path)

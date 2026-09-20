@@ -13,8 +13,9 @@ Audit / event-sourcing schema lives in SQLAlchemy models under
 deleted in normal operation (PostgreSQL triggers reject `UPDATE`/`DELETE`). Hash
 chaining columns (`prev_hash`, `event_hash`) are filled by the audit writer (T009).
 Normalized helper tables (`agent_decisions`, `model_calls`, …) support analysis
-without replacing the event stream. Artifact **blobs** are out of band (T007);
-the `artifacts` table stores metadata only.
+without replacing the event stream. Artifact **blobs** live on volume
+`artifacts_data` (see [`docs/artifacts.md`](../docs/artifacts.md)); the
+`artifacts` table stores metadata only.
 
 Apply migrations (compose `db` healthy, `DATABASE_*` set):
 

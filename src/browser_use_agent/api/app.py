@@ -10,6 +10,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from browser_use_agent.agent.worker import RunWorker, load_run_worker_settings
 from browser_use_agent.api.auth import RemoteUserAuthMiddleware
 from browser_use_agent.api.csrf import CsrfOriginMiddleware
 from browser_use_agent.api.events_bus import get_event_bus
@@ -81,6 +82,14 @@ def create_app(
         audit_factory=AuditWriter if db_engine is not None else None,
         session_factory=app.state.session_factory,
     )
+    if app.state.session_factory is not None:
+        app.state.run_worker = RunWorker(
+            app.state.session_factory,
+            settings=load_run_worker_settings(),
+            browser_manager=app.state.browser_session_manager,
+        )
+    else:
+        app.state.run_worker = None
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

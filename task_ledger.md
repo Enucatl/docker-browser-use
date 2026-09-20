@@ -52,12 +52,12 @@ Status values: `todo` · `ready` · `blocked` · `in_progress` · `done` · `can
 | T012 | Authelia `Remote-User` trust and CSRF/origin hardening | T010, T002 | done | [tasks/T012.md](tasks/T012.md) |
 | T013 | Browser Use session manager (on-demand Chrome, persistent profile) | T004, T010 | done | [tasks/T013.md](tasks/T013.md) |
 | T014 | Jev action space + Browser Use ↔ Jev adapter | T001 | done | [tasks/T014.md](tasks/T014.md) |
-| T015 | Observe → Jev → execute control loop with audit hooks | T009, T013, T014 | ready | [tasks/T015.md](tasks/T015.md) |
-| T016 | Small text LLM gate for `TYPE_TEXT` only | T015 | todo | [tasks/T016.md](tasks/T016.md) |
-| T017 | Model-call and browser-action tracing tables/writers | T009, T015 | todo | [tasks/T017.md](tasks/T017.md) |
-| T018 | Compressed browser-state checkpoints on meaningful changes | T007, T015 | todo | [tasks/T018.md](tasks/T018.md) |
-| T019 | Screenshot policy (WebP/JPEG, event-driven capture) | T007, T015 | todo | [tasks/T019.md](tasks/T019.md) |
-| T020 | Pause, resume, cancel, and retry controls | T010, T015 | todo | [tasks/T020.md](tasks/T020.md) |
+| T015 | Observe → Jev → execute control loop with audit hooks | T009, T013, T014 | done | [tasks/T015.md](tasks/T015.md) |
+| T016 | Small text LLM gate for `TYPE_TEXT` only | T015 | ready | [tasks/T016.md](tasks/T016.md) |
+| T017 | Model-call and browser-action tracing tables/writers | T009, T015 | ready | [tasks/T017.md](tasks/T017.md) |
+| T018 | Compressed browser-state checkpoints on meaningful changes | T007, T015 | ready | [tasks/T018.md](tasks/T018.md) |
+| T019 | Screenshot policy (WebP/JPEG, event-driven capture) | T007, T015 | ready | [tasks/T019.md](tasks/T019.md) |
+| T020 | Pause, resume, cancel, and retry controls | T010, T015 | ready | [tasks/T020.md](tasks/T020.md) |
 | T021 | Human approval gates for high-impact actions | T011, T015, T020 | todo | [tasks/T021.md](tasks/T021.md) |
 | T022 | Live agent Chrome view (Xvfb + noVNC) behind Traefik/Authelia | T004, T013, T012 | ready | [tasks/T022.md](tasks/T022.md) |
 | T023 | Take-control / human-in-the-loop VNC handoff | T022, T020 | todo | [tasks/T023.md](tasks/T023.md) |
@@ -72,7 +72,7 @@ Status values: `todo` · `ready` · `blocked` · `in_progress` · `done` · `can
 | T027 | Explicit Bitwarden actions (`LOGIN` / `IDENTITY` / `CARD`) | T015, T026, T008 | todo | [tasks/T027.md](tasks/T027.md) |
 | T028 | Richer approval policy engine (rules + UI reasons) | T021 | todo | [tasks/T028.md](tasks/T028.md) |
 | T029 | Cost entries and simple cost dashboard API/UI | T017, T024 | todo | [tasks/T029.md](tasks/T029.md) |
-| T030 | OpenTelemetry instrumentation alongside Postgres audit | T015 | todo | [tasks/T030.md](tasks/T030.md) |
+| T030 | OpenTelemetry instrumentation alongside Postgres audit | T015 | ready | [tasks/T030.md](tasks/T030.md) |
 | T031 | Multi-profile support (Personal / Work / Testing) | T013, T024 | todo | [tasks/T031.md](tasks/T031.md) |
 
 ## Phase 3 — Evaluation and storage maturity

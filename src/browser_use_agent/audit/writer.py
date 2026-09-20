@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -22,6 +22,32 @@ Actor = Literal["agent", "human", "system"]
 
 _VALID_ACTORS = frozenset({"agent", "human", "system"})
 
+# Optional bridge for live WebSocket streaming (T011); avoids audit→api imports.
+_AppendHook = Callable[[AgentEvent], None]
+_append_hook: _AppendHook | None = None
+
+
+def set_append_hook(hook: _AppendHook | None) -> None:
+    """Register a post-append callback (e.g. in-process event bus publish).
+
+    The hook receives the flushed :class:`~browser_use_agent.db.models.AgentEvent`
+    after redaction and hash chaining. Exceptions from the hook are not caught.
+
+    Args:
+        hook: Callable invoked after each successful append, or ``None`` to clear.
+    """
+    global _append_hook
+    _append_hook = hook
+
+
+def get_append_hook() -> _AppendHook | None:
+    """Return the current post-append hook, if any.
+
+    Returns:
+        Registered hook or ``None``.
+    """
+    return _append_hook
+
 
 class AuditWriterError(ValueError):
     """Raised when an audit append cannot proceed."""
@@ -33,6 +59,9 @@ class AuditWriter:
     Same-run appends are serialized with ``SELECT FOR UPDATE`` on the ``runs``
     row so concurrent writers for one run cannot race on ``seq`` / ``prev_hash``.
     Distinct runs do not contend on each other's locks.
+
+    After each successful flush, an optional process-wide append hook runs so
+    live subscribers (WebSocket bus, T011) see redacted events only.
 
     Attributes:
         session: SQLAlchemy session used for locks and inserts.
@@ -151,4 +180,6 @@ class AuditWriter:
         )
         self.session.add(row)
         self.session.flush()
+        if _append_hook is not None:
+            _append_hook(row)
         return row

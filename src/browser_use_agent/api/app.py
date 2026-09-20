@@ -6,9 +6,22 @@ from fastapi import FastAPI
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from browser_use_agent.api.events_bus import get_event_bus
 from browser_use_agent.api.routes.runs import router as runs_router
+from browser_use_agent.api.ws import router as ws_router
+from browser_use_agent.audit.writer import set_append_hook
 from browser_use_agent.config import AppSettings, load_app_settings
 from browser_use_agent.db.engine import create_engine_from_settings
+from browser_use_agent.db.models import AgentEvent
+
+
+def _bridge_audit_to_event_bus(event: AgentEvent) -> None:
+    """Publish a redacted audit append onto the in-process run event bus.
+
+    Args:
+        event: Flushed :class:`~browser_use_agent.db.models.AgentEvent` row.
+    """
+    get_event_bus().publish_event(event, source="live")
 
 
 def create_app(
@@ -28,6 +41,8 @@ def create_app(
     resolved = settings if settings is not None else load_app_settings()
     app = FastAPI(title="browser-use agent controller", version="0.1.0")
     app.state.settings = resolved
+    app.state.event_bus = get_event_bus()
+    set_append_hook(_bridge_audit_to_event_bus)
 
     db_engine = engine
     if db_engine is None and resolved.database is not None:
@@ -51,4 +66,5 @@ def create_app(
         return {"status": "ok"}
 
     app.include_router(runs_router)
+    app.include_router(ws_router)
     return app

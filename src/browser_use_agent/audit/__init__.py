@@ -9,7 +9,13 @@ from browser_use_agent.audit.hashchain import (
     verify_events_chain,
     verify_run_chain,
 )
-from browser_use_agent.audit.writer import Actor, AuditWriter, AuditWriterError
+from browser_use_agent.audit.writer import (
+    Actor,
+    AuditWriter,
+    AuditWriterError,
+    get_append_hook,
+    set_append_hook,
+)
 
 __all__ = [
     "GENESIS_PREV_HASH",
@@ -20,6 +26,8 @@ __all__ = [
     "canonicalize_value",
     "compute_event_hash",
     "event_hash_fields",
+    "get_append_hook",
+    "set_append_hook",
     "verify_events_chain",
     "verify_run_chain",
 ]

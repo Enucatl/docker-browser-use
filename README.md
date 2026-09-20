@@ -40,6 +40,8 @@ The `browser` service runs Chromium with CDP on the same internal network (`brow
 
 Artifact blobs (SHA-256 content-addressed, Zstd helpers for structured state) live on volume `artifacts_data` at `/var/lib/browser-use/artifacts` on the controller — not served by Traefik. See [`docs/artifacts.md`](docs/artifacts.md).
 
+Live run progress: WebSocket `WS /api/runs/{run_id}/events` (replay + AuditWriter bridge). Schema and reconnect notes: [`docs/ws-events.md`](docs/ws-events.md).
+
 ```bash
 docker compose build browser
 docker compose run --rm --no-deps browser smoke

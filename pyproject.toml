@@ -15,20 +15,22 @@ authors = [
 ]
 dependencies = [
     "alembic>=1.14",
+    "fastapi>=0.141.1",
     "psycopg[binary]>=3.2",
     "sqlalchemy>=2.0",
+    "uvicorn[standard]>=0.53.0",
     "zstandard>=0.25.0",
 ]
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
     "pytest>=8.0",
     "ruff>=0.6",
 ]
 
 [project.optional-dependencies]
-# Populated by later tasks (FastAPI, Browser Use, etc.).
-web = []
+# Optional extras for later tasks (Browser Use, etc.).
 browser = []
 
 [tool.pytest.ini_options]

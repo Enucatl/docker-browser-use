@@ -1,0 +1,40 @@
+# Two images (controller Dockerfile + Dockerfile.browser): separate jobs, same
+# pattern as paperless-ai / crabberbot. PR builds scan only; push publishes.
+name: Docker CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["*"]
+  pull_request:
+
+jobs:
+  controller:
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      security-events: write
+    uses: Enucatl/docker-compose-security-baseline/.github/workflows/docker-ci.yml@main
+    with:
+      image_name: ghcr.io/enucatl/browser-use
+      context: .
+      dockerfile: Dockerfile
+      platforms: linux/amd64
+      push: ${{ github.event_name != 'pull_request' }}
+    secrets: inherit
+
+  browser:
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      security-events: write
+    uses: Enucatl/docker-compose-security-baseline/.github/workflows/docker-ci.yml@main
+    with:
+      image_name: ghcr.io/enucatl/browser-use-browser
+      context: .
+      dockerfile: Dockerfile.browser
+      platforms: linux/amd64
+      push: ${{ github.event_name != 'pull_request' }}
+    secrets: inherit

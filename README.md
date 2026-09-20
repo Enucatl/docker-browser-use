@@ -2,6 +2,10 @@
 
 Always-on self-hosted browser-agent service (Agent Web UI → controller → Browser Use / Chrome).
 
+**Phase 1 MVP operators:** start with [`docs/operator.md`](docs/operator.md) and
+[`docs/smoke-checklist.md`](docs/smoke-checklist.md). Remaining work is tracked in
+[`task_ledger.md`](task_ledger.md).
+
 ## Development
 
 ```bash
@@ -11,41 +15,63 @@ uv run ruff format .
 uv run ruff check .
 ```
 
-Postgres audit schema migrations (Alembic): see [`db/README.md`](db/README.md). Apply with
-`uv run python -m browser_use_agent.db.migrate` when `DATABASE_*` (or `DATABASE_URL`) is set.
-
-Implementation work is tracked in [`task_ledger.md`](task_ledger.md); detailed briefs live under [`tasks/`](tasks/).
+Postgres audit schema migrations (Alembic): see [`db/README.md`](db/README.md).
+The Compose `controller` entrypoint applies `upgrade head` on start. On a host
+with `DATABASE_*` set you can also run
+`uv run python -m browser_use_agent.db.migrate`.
 
 ## Compose (homelab)
 
-Copy [`.env.example`](.env.example) to `.env` so Compose loads `COMPOSE_ENV_FILES=../.env` (`DOCKER_DOMAIN` from `/opt/docker/.env`):
+Prerequisites: Traefik (`traefik_proxy`), Authelia middlewares, `/opt/docker/.env`
+(`DOCKER_DOMAIN`), and hardening profiles from
+[`../compose-security-baseline`](../compose-security-baseline).
 
 ```bash
 cp .env.example .env
-docker compose config
-```
-
-Public URL: `https://browser-use.${DOCKER_DOMAIN}` behind Traefik with middlewares `authelia@docker,secured@file`. Authelia’s wildcard `*.docker.home.arpa` rule already allows `group:admins`; no Authelia config change is required for this stack. The controller trusts Authelia `Remote-User` headers when `AUTH_REQUIRED=true` (Compose default) and checks CSRF trusted origins — see [`docs/auth.md`](docs/auth.md).
-
-Secrets belong under [`secrets/`](secrets/) (gitignored except `.gitkeep` / README). Generate the Postgres password before first `compose up`:
-
-```bash
+mkdir -p secrets
 openssl rand -hex 32 > secrets/postgres_password
 chmod 600 secrets/postgres_password
+docker compose config
+docker compose up -d
 ```
 
-The `db` service (`postgres:18`) stays on the internal Compose network only — not on `traefik_proxy` and not published on the host.
+Public URL: `https://browser-use.${DOCKER_DOMAIN}` behind Traefik with
+`authelia@docker,secured@file`. Authelia’s wildcard `*.docker.home.arpa` rule
+already allows `group:admins`. Auth details: [`docs/auth.md`](docs/auth.md).
 
-The `browser` service runs headed Chromium on Xvfb with CDP on the internal network (`browser:9222`). It is not on `traefik_proxy` and does not publish CDP (9222) or VNC (5900) on the host. Persistent agent profile: volume `chrome_profile`. The controller attaches Browser Use on demand via `BrowserSessionManager` (CDP WebSocket host rewrite, idle detach, audit `browser_started`/`browser_stopped`). Runtime notes: [`docs/browser-runtime.md`](docs/browser-runtime.md).
+### What runs where
 
-Live Chrome view: Authelia-gated noVNC at `https://browser-use.${DOCKER_DOMAIN}/vnc/` (sibling `novnc` service; view-only by default). Take-control mutex: [`docs/takeover.md`](docs/takeover.md). See [`docs/live-view.md`](docs/live-view.md).
+| Service | Role | Public? |
+| --- | --- | --- |
+| `controller` | FastAPI + Agent Web UI | Yes (Authelia) |
+| `novnc` | Live Chrome view at `/vnc/` | Yes (Authelia) |
+| `browser` | Headed Chromium, CDP `:9222`, x11vnc `:5900` | **No** — internal only |
+| `db` | Postgres audit store | **No** — internal only |
 
-Artifact blobs (SHA-256 content-addressed, Zstd helpers for structured state) live on volume `artifacts_data` at `/var/lib/browser-use/artifacts` on the controller — not served by Traefik. See [`docs/artifacts.md`](docs/artifacts.md).
+CDP and raw VNC are **never** host-published and never on `traefik_proxy`. Verify
+with the smoke checklist § B.
 
-Live run progress: WebSocket `WS /api/runs/{run_id}/events` (replay + AuditWriter bridge). Schema and reconnect notes: [`docs/ws-events.md`](docs/ws-events.md).
+Persistent Chrome profile: volume `chrome_profile`. Artifacts:
+volume `artifacts_data` at `/var/lib/browser-use/artifacts` on the controller —
+[`docs/artifacts.md`](docs/artifacts.md). Browser runtime / hardening:
+[`docs/browser-runtime.md`](docs/browser-runtime.md).
+
+### Day-2 operations
+
+- First Authelia login, demo run, pause/approve/takeover: [`docs/operator.md`](docs/operator.md)
+- Post-deploy smoke: [`docs/smoke-checklist.md`](docs/smoke-checklist.md)
+- Live view: [`docs/live-view.md`](docs/live-view.md) · Takeover: [`docs/takeover.md`](docs/takeover.md)
+- Approvals: [`docs/approvals.md`](docs/approvals.md) · WS events: [`docs/ws-events.md`](docs/ws-events.md)
+
+### Known limitations (Phase 1)
+
+- **Jev:** without `JEV_API_KEY`/`*_FILE`, FakeJev returns `DONE` (UI/audit smoke only)
+- **Bitwarden:** not yet (T026/T027)
+- **Browser egress:** Compose `default` is `internal: true` — Chromium cannot load public sites yet
+- **`/vnc`:** confirm manually behind Authelia after deploy
 
 ```bash
-docker compose build browser novnc
+docker compose build
+docker compose up -d
 docker compose run --rm --no-deps browser smoke
-docker compose up -d browser novnc
 ```

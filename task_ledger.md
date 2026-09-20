@@ -62,7 +62,7 @@ Status values: `todo` · `ready` · `blocked` · `in_progress` · `done` · `can
 | T022 | Live agent Chrome view (Xvfb + noVNC) behind Traefik/Authelia | T004, T013, T012 | done | [tasks/T022.md](tasks/T022.md) |
 | T023 | Take-control / human-in-the-loop VNC handoff | T022, T020 | done | [tasks/T023.md](tasks/T023.md) |
 | T024 | Minimal Agent Web UI (run, watch, pause, approve, history) | T011, T012, T020, T021 | done | [tasks/T024.md](tasks/T024.md) |
-| T025 | End-to-end MVP smoke path and operator README | T015–T024 | todo | [tasks/T025.md](tasks/T025.md) |
+| T025 | End-to-end MVP smoke path and operator README | T015–T024 | done | [tasks/T025.md](tasks/T025.md) |
 
 ## Phase 2 — Secrets, policies, observability
 

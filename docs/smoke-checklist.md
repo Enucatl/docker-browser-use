@@ -7,7 +7,7 @@ Related: [`operator.md`](operator.md).
 
 ## A. Compose and secrets
 
-- [ ] `.env` exists with `COMPOSE_ENV_FILES=../.env` (or equivalent `DOCKER_DOMAIN`)
+- [ ] `.env` exists with `DOCKER_DOMAIN` set (or shell `COMPOSE_ENV_FILES=../.env,./.env`)
 - [ ] `secrets/postgres_password` present, mode `600`, not in git
 - [ ] `docker compose config` succeeds
 - [ ] `docker compose up -d` brings `db`, `controller`, `browser`, `novnc` to healthy/started

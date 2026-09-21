@@ -30,6 +30,8 @@ RUN uv sync --frozen --no-dev --no-install-project --no-editable
 COPY src/ src/
 COPY alembic.ini alembic.ini
 COPY alembic/ alembic/
+# uv build needs packaging metadata files declared in pyproject.toml.
+COPY README.md LICENSE ./
 RUN uv sync --frozen --no-dev --no-editable
 
 # ---- Stage 2: runtime ----

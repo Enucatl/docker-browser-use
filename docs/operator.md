@@ -8,7 +8,7 @@ Implementation tracking: [`task_ledger.md`](../task_ledger.md).
 | Requirement | Notes |
 | --- | --- |
 | Docker + Compose | Project lives at `/opt/docker/browser-use` |
-| Shared env | `/opt/docker/.env` provides `DOCKER_DOMAIN` (and related subnets) |
+| Shared env | `/opt/docker/.env` provides `DOCKER_DOMAIN`; export `COMPOSE_ENV_FILES=../.env,./.env` in the shell/systemd unit (listing it only inside project `.env` does not load the parent file). Project `.env` also sets a `DOCKER_DOMAIN` fallback for bare `docker compose up`. |
 | External network | `traefik_proxy` already exists (Traefik) |
 | Authelia | Middleware `authelia@docker` + `secured@file`; wildcard `*.docker.home.arpa` already allows `group:admins` |
 | Hardening profiles | Sibling repo [`../compose-security-baseline`](../../compose-security-baseline) (`hardening.yml`) |
@@ -22,11 +22,12 @@ No Authelia config change is required for a normal `*.docker.home.arpa` admin ap
 
 ```bash
 cd /opt/docker/browser-use
-cp .env.example .env   # loads COMPOSE_ENV_FILES=../.env → DOCKER_DOMAIN
+cp .env.example .env
+export COMPOSE_ENV_FILES=../.env,./.env   # or rely on DOCKER_DOMAIN fallback in .env
 mkdir -p secrets
 openssl rand -hex 32 > secrets/postgres_password
 chmod 600 secrets/postgres_password
-docker compose config >/dev/null   # validate interpolation
+docker compose config >/dev/null   # Host(`browser-use.docker.home.arpa`) — not blank
 ```
 
 Optional (live Jev / text LLM): add Docker secret files and wire `*_FILE` env in

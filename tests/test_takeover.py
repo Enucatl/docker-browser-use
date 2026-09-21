@@ -248,7 +248,7 @@ def test_release_after_mid_step_takeover_does_fresh_observe() -> None:
         class _TakeoverOnFirstDecide:
             """Arm human control immediately after the first Jev decision."""
 
-            def decide(self, request):  # noqa: ANN001
+            def decide(self, request):
                 nonlocal awaiting_human, decide_count
                 response = base_jev.decide(request)
                 decide_count += 1

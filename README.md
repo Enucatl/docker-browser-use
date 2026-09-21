@@ -28,6 +28,8 @@ Prerequisites: Traefik (`traefik_proxy`), Authelia middlewares, `/opt/docker/.en
 
 ```bash
 cp .env.example .env
+# Prefer: export COMPOSE_ENV_FILES=../.env,./.env
+# (.env also ships a DOCKER_DOMAIN fallback for bare compose up)
 mkdir -p secrets
 openssl rand -hex 32 > secrets/postgres_password
 chmod 600 secrets/postgres_password

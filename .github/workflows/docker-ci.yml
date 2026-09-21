@@ -22,7 +22,9 @@ jobs:
       dockerfile: Dockerfile
       platforms: linux/amd64
       push: ${{ github.event_name != 'pull_request' }}
-    secrets: inherit
+      fail_on_image_findings: false
+    secrets:
+      registry_token: ${{ secrets.GITHUB_TOKEN }}
 
   browser:
     permissions:
@@ -37,7 +39,9 @@ jobs:
       dockerfile: Dockerfile.browser
       platforms: linux/amd64
       push: ${{ github.event_name != 'pull_request' }}
-    secrets: inherit
+      fail_on_image_findings: false
+    secrets:
+      registry_token: ${{ secrets.GITHUB_TOKEN }}
 
   novnc:
     permissions:
@@ -52,4 +56,6 @@ jobs:
       dockerfile: Dockerfile.novnc
       platforms: linux/amd64
       push: ${{ github.event_name != 'pull_request' }}
-    secrets: inherit
+      fail_on_image_findings: false
+    secrets:
+      registry_token: ${{ secrets.GITHUB_TOKEN }}

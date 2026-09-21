@@ -149,9 +149,25 @@ HTTP noVNC edge (`/vnc`) and the controller UI/API are on `traefik_proxy`.
 4. **Authelia + `/vnc`** — Manual verify: open `/vnc/` after Authelia login and
    confirm the desktop appears. Do not bypass Authelia for this path.
 5. **Text LLM** — `TYPE_TEXT` without pre-filled text needs `TEXT_LLM_*` or fails closed.
-6. **Multi-profile / cost / OTel** — Phase 2 (T029–T031).
+6. **Multi-profile / cost** — Phase 2 (T029, T031).
 
 Remaining work: [`task_ledger.md`](../task_ledger.md) Phase 2 / 3.
+
+## Operational telemetry
+
+The controller creates OpenTelemetry spans for each run step and its
+`observe`, `jev`, `text_llm`, `execute`, and `approve_wait` phases. It also
+records step latency, worker queue depth, and approval wait time. Set
+`OTEL_EXPORTER_OTLP_ENDPOINT` to an OTLP/HTTP collector base URL (for example,
+`http://otel-collector:4318`) to export traces and metrics; the endpoint is
+unset by default, so Compose does not require Tempo or a collector. Sampling
+uses `OTEL_TRACES_SAMPLER` and `OTEL_TRACES_SAMPLER_ARG`.
+
+These signals are operational summaries for latency and errors. PostgreSQL's
+`agent_events` remains the immutable, redacted semantic forensic timeline with
+full event payloads, hash chaining, and step links. Telemetry spans contain
+only run/step identifiers and non-secret phase metadata; they are not an audit
+replacement.
 
 ## Smoke checklist
 

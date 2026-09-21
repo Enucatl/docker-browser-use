@@ -53,6 +53,7 @@ from browser_use_agent.policy.text_llm import (
 from browser_use_agent.runs.status import TERMINAL_STATUSES, RunStatus
 from browser_use_agent.services import approvals as approval_service
 from browser_use_agent.services.runs import get_run
+from browser_use_agent.telemetry.otel import Telemetry, get_telemetry
 
 logger = logging.getLogger(__name__)
 
@@ -171,6 +172,7 @@ class RunWorker:
         checkpoint: CheckpointHook | CheckpointHookWithReason | None = None,
         screenshot: ScreenshotHook | ScreenshotHookWithReason | None = None,
         adapter: JevAdapter | None = None,
+        telemetry: Telemetry | None = None,
     ) -> None:
         """Create a run worker.
 
@@ -190,6 +192,7 @@ class RunWorker:
                 :class:`ScreenshotWriter` is built per run when the artifact
                 store is available.
             adapter: Optional shared Jev adapter.
+            telemetry: Optional operational trace and metric sink.
         """
         self.settings = settings if settings is not None else load_run_worker_settings()
         self.session_factory = session_factory
@@ -203,6 +206,7 @@ class RunWorker:
         self._auto_checkpoint = checkpoint is None
         self._auto_screenshot = screenshot is None
         self.adapter = adapter if adapter is not None else JevAdapter()
+        self.telemetry = telemetry or get_telemetry()
         self._semaphore = asyncio.Semaphore(self.settings.max_concurrent_runs)
         self._tasks: dict[uuid.UUID, asyncio.Task[LoopOutcome]] = {}
         self._lock = asyncio.Lock()
@@ -256,6 +260,7 @@ class RunWorker:
 
             def _cleanup(done: asyncio.Task[LoopOutcome]) -> None:
                 self._tasks.pop(run_id, None)
+                self.telemetry.add_queue_depth(-1)
                 try:
                     done.result()
                 except asyncio.CancelledError:
@@ -264,6 +269,7 @@ class RunWorker:
                     logger.exception("Worker task for run %s failed", run_id)
 
             task.add_done_callback(_cleanup)
+            self.telemetry.add_queue_depth(1)
             return task
 
     async def _guarded_run(self, run_id: uuid.UUID) -> LoopOutcome:
@@ -276,7 +282,8 @@ class RunWorker:
             Loop outcome after status persistence.
         """
         async with self._semaphore:
-            return await self._execute_run(run_id)
+            with self.telemetry.span("run", run_id=run_id):
+                return await self._execute_run(run_id)
 
     async def _execute_run(self, run_id: uuid.UUID) -> LoopOutcome:
         """Acquire browser (optional), run the loop, persist terminal status.
@@ -451,6 +458,7 @@ class RunWorker:
                 control_signals=signals,
                 consume_step_retry=signals.consume_step_retry,
                 commit=session.commit,
+                telemetry=self.telemetry,
             )
             outcome = await loop.run()
             self._persist_outcome(session, run_id, outcome)

@@ -48,6 +48,7 @@ from browser_use_agent.policy.jev_client import JevClient, JevClientError, JevRe
 from browser_use_agent.policy.text_llm import TextLLMClient, TextLLMError, maybe_fill_type_text
 from browser_use_agent.runs.status import RunStatus
 from browser_use_agent.security.redaction import redact_for_audit
+from browser_use_agent.telemetry.otel import Telemetry, get_telemetry
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +155,7 @@ class AgentLoop:
         control_signals: RunControlSignals | None = None,
         consume_step_retry: RetryConsume | None = None,
         commit: Callable[[], None] | None = None,
+        telemetry: Telemetry | None = None,
     ) -> None:
         """Create a control loop for one run.
 
@@ -183,6 +185,7 @@ class AgentLoop:
             control_signals: Optional in-process wake hub entry for this run.
             consume_step_retry: Optional one-shot retry arm consumer (T020).
             commit: Optional callback after each audit batch (e.g. session.commit).
+            telemetry: Optional operational trace and metric sink.
         """
         self.run_id = run_id
         self.goal = goal
@@ -212,6 +215,7 @@ class AgentLoop:
         self.control_signals = control_signals
         self.consume_step_retry = consume_step_retry
         self._commit = commit
+        self.telemetry = telemetry or get_telemetry()
         self._history: list[str] = []
         self._approval_settings: ApprovalSettings = settings
 
@@ -247,8 +251,13 @@ class AgentLoop:
             last_step_id = step_id
             steps += 1
 
+            step_started = time.perf_counter()
+            step_status = "error"
             try:
-                outcome = await self._step(step_id, step_number=steps)
+                with self.telemetry.span("step", run_id=self.run_id, step_id=step_id) as span:
+                    outcome = await self._step(step_id, step_number=steps)
+                    step_status = outcome.status.value if outcome is not None else "continued"
+                    span.set_attribute("status", step_status)
             except (TypeTextBlockedError, TextLLMError) as exc:
                 self.audit.append(
                     self.run_id,
@@ -306,6 +315,11 @@ class AgentLoop:
                     steps_completed=steps,
                     last_step_id=step_id,
                 )
+            finally:
+                self.telemetry.record_step(
+                    (time.perf_counter() - step_started) * 1000,
+                    status=step_status,
+                )
 
             if outcome is not None:
                 return LoopOutcome(
@@ -352,9 +366,10 @@ class AgentLoop:
             return gate
 
         # --- observe ---
-        t0 = time.perf_counter()
-        observation = await self.browser.observe()
-        observe_ms = int((time.perf_counter() - t0) * 1000)
+        with self.telemetry.span("observe", run_id=self.run_id, step_id=step_id):
+            t0 = time.perf_counter()
+            observation = await self.browser.observe()
+            observe_ms = int((time.perf_counter() - t0) * 1000)
         self.audit.append(
             self.run_id,
             "observation_captured",
@@ -391,10 +406,12 @@ class AgentLoop:
         # --- Jev decide ---
         history_summary = " | ".join(self._history[-8:])
         request = self.adapter.to_jev_request(observation, self.goal, history_summary)
-        t1 = time.perf_counter()
-        response = self.jev.decide(request)
-        decide_ms = int((time.perf_counter() - t1) * 1000)
-        action = self.adapter.from_jev_response(response, observation=observation)
+        with self.telemetry.span("jev", run_id=self.run_id, step_id=step_id) as span:
+            t1 = time.perf_counter()
+            response = self.jev.decide(request)
+            decide_ms = int((time.perf_counter() - t1) * 1000)
+            action = self.adapter.from_jev_response(response, observation=observation)
+            span.set_attribute("action.kind", action.kind.value)
 
         decision_payload = {
             "kind": action.kind.value,
@@ -466,10 +483,22 @@ class AgentLoop:
                 self.set_status(RunStatus.AWAITING_APPROVAL)
             self._flush()
 
-            decision = await wait_for_approval_decision(
-                signals=self.control_signals,
-                is_cancelled=self.is_cancelled or (lambda: False),
-                timeout_seconds=self.approval_timeout_seconds,
+            approval_started = time.perf_counter()
+            with self.telemetry.span(
+                "approve_wait",
+                run_id=self.run_id,
+                step_id=step_id,
+                attributes={"action.kind": action.kind.value},
+            ) as span:
+                decision = await wait_for_approval_decision(
+                    signals=self.control_signals,
+                    is_cancelled=self.is_cancelled or (lambda: False),
+                    timeout_seconds=self.approval_timeout_seconds,
+                )
+                span.set_attribute("decision", decision)
+            self.telemetry.record_approval_wait(
+                (time.perf_counter() - approval_started) * 1000,
+                decision=decision,
             )
 
             if decision == "cancelled":
@@ -586,9 +615,16 @@ class AgentLoop:
         )
         self._flush()
 
-        t2 = time.perf_counter()
-        result = await self.browser.execute(action)
-        exec_ms = int((time.perf_counter() - t2) * 1000)
+        with self.telemetry.span(
+            "execute",
+            run_id=self.run_id,
+            step_id=step_id,
+            attributes={"action.kind": action.kind.value},
+        ) as span:
+            t2 = time.perf_counter()
+            result = await self.browser.execute(action)
+            exec_ms = int((time.perf_counter() - t2) * 1000)
+            span.set_attribute("status", "ok" if result.ok else "failed")
         page_changed = _page_changed(observation, result.metadata)
 
         if result.ok:
@@ -754,12 +790,18 @@ class AgentLoop:
         if action.params.text:
             return
         try:
-            result = maybe_fill_type_text(
-                action,
-                goal=self.goal,
-                observation=observation,
-                client=self.text_llm,
-            )
+            with self.telemetry.span(
+                "text_llm",
+                run_id=self.run_id,
+                step_id=step_id,
+                attributes={"action.kind": action.kind.value},
+            ):
+                result = maybe_fill_type_text(
+                    action,
+                    goal=self.goal,
+                    observation=observation,
+                    client=self.text_llm,
+                )
         except TextLLMError as exc:
             failed_event = self.audit.append(
                 self.run_id,

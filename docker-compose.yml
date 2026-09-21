@@ -41,6 +41,12 @@ services:
       - TEXT_LLM_MODEL=${TEXT_LLM_MODEL:-gpt-4.1-mini}
       - TEXT_LLM_MAX_TOKENS=${TEXT_LLM_MAX_TOKENS:-64}
       - TEXT_LLM_API_KEY_FILE=/run/secrets/openrouter_api_key
+      # Optional OTLP/HTTP export; an empty endpoint keeps telemetry local/off.
+      - OTEL_ENABLED=${OTEL_ENABLED:-}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-browser-use-agent}
+      - OTEL_TRACES_SAMPLER=${OTEL_TRACES_SAMPLER:-traceidratio}
+      - OTEL_TRACES_SAMPLER_ARG=${OTEL_TRACES_SAMPLER_ARG:-1.0}
     restart: unless-stopped
     labels:
       - "traefik.enable=true"

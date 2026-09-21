@@ -27,12 +27,13 @@ Prerequisites: Traefik (`traefik_proxy`), Authelia middlewares, `/opt/docker/.en
 [`../compose-security-baseline`](../compose-security-baseline).
 
 ```bash
-cp .env.example .env
-# Prefer: export COMPOSE_ENV_FILES=../.env,./.env
-# (.env also ships a DOCKER_DOMAIN fallback for bare compose up)
+# Compose defaults live in docker-compose.yml; the shared env only provides DOCKER_DOMAIN.
+export COMPOSE_ENV_FILES=../.env
 mkdir -p secrets
 openssl rand -hex 32 > secrets/postgres_password
-chmod 600 secrets/postgres_password
+: > secrets/jev_api_key
+: > secrets/openrouter_api_key
+chmod 600 secrets/postgres_password secrets/jev_api_key secrets/openrouter_api_key
 docker compose config
 docker compose up -d
 ```
@@ -67,7 +68,7 @@ volume `artifacts_data` at `/var/lib/browser-use/artifacts` on the controller â€
 
 ### Known limitations (Phase 1)
 
-- **Jev:** without `JEV_API_KEY`/`*_FILE`, FakeJev returns `DONE` (UI/audit smoke only)
+- **Jev:** without `JEV_API_KEY_FILE`, FakeJev returns `DONE` (UI/audit smoke only)
 - **Bitwarden:** not yet (T026/T027)
 - **Browser egress:** Compose `default` is `internal: true` â€” Chromium cannot load public sites yet
 - **`/vnc`:** confirm manually behind Authelia after deploy

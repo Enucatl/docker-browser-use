@@ -48,7 +48,7 @@ Response::
       }
     }
 
-Auth: ``Authorization: Bearer jv_live_…`` from ``JEV_API_KEY`` / ``*_FILE``.
+Auth: ``Authorization: Bearer jv_live_…`` from ``JEV_API_KEY_FILE``.
 This module isolates the HTTP boundary so the real endpoint can be swapped
 without changing the adapter. Production credentials beyond config hooks are
 out of scope for T014; use :class:`FakeJevClient` in tests.
@@ -64,6 +64,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from browser_use_agent.db.settings import read_secret_file
 from browser_use_agent.policy.actions import ActionKind
 
 QuestionType = Literal["choice", "score", "noul"]
@@ -223,18 +224,14 @@ def load_jev_client_settings() -> JevClientSettings:
     """Load Jev client hooks from the environment.
 
     Reads ``JEV_BASE_URL``, ``JEV_MODEL``, ``JEV_TIMEOUT_SECONDS``, and
-    ``JEV_API_KEY`` or ``JEV_API_KEY_FILE`` (Docker secret file).
+    ``JEV_API_KEY_FILE`` (Docker secret file).
 
     Returns:
         Immutable settings snapshot (key may be ``None``).
     """
-    api_key = os.environ.get("JEV_API_KEY", "").strip() or None
-    if api_key is None:
-        key_file = os.environ.get("JEV_API_KEY_FILE", "").strip()
-        if key_file:
-            from pathlib import Path
-
-            api_key = Path(key_file).read_text(encoding="utf-8").strip() or None
+    api_key = read_secret_file("JEV_API_KEY")
+    if api_key is not None:
+        api_key = api_key.strip() or None
 
     timeout_raw = os.environ.get("JEV_TIMEOUT_SECONDS", "30").strip()
     return JevClientSettings(
@@ -454,7 +451,7 @@ class HttpJevClient(JevClient):
         """
         if not self.settings.api_key:
             raise JevClientNotConfiguredError(
-                "JEV_API_KEY / JEV_API_KEY_FILE is not configured",
+                "JEV_API_KEY_FILE is not configured",
             )
         try:
             import niquests

@@ -21,7 +21,7 @@ event stream. Artifact **blobs** live on volume `artifacts_data` (see
 [`docs/artifacts.md`](../docs/artifacts.md)); the `artifacts` table stores
 metadata only.
 
-Apply migrations (compose `db` healthy, `DATABASE_*` set):
+Apply migrations (compose `db` healthy, with `DATABASE_PASSWORD_FILE` mounted):
 
 ```bash
 uv run python -m browser_use_agent.db.migrate
@@ -30,4 +30,5 @@ uv run python -m browser_use_agent.db.migrate
 
 Programmatic: `from browser_use_agent.db import upgrade_head; upgrade_head()`.
 
-Override URL for one-shot / tests: `DATABASE_URL=postgresql+psycopg://...`.
+Tests may pass an explicit URL to `upgrade_head(database_url=...)`; credentials are
+not accepted from environment variables.

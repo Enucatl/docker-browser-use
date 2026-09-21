@@ -56,19 +56,17 @@ cleanly under `cap_drop: ALL` without `--no-sandbox`.
 
 ## CDP binding
 
-| Variable | Default | Meaning |
+| Fixed value | Meaning |
 | --- | --- | --- |
-| `CDP_PORT` | `9222` | nginx CDP front port inside the container namespace (not on the host) |
-| `CDP_LOOPBACK_PORT` | `9223` | Port Chromium binds on `127.0.0.1` (modern Chrome is loopback-only) |
-| `CHROME_USER_DATA_DIR` | `/data/chrome-profile` | Persistent profile path |
-| `CHROME_DOWNLOAD_DIR` | `/data/downloads` | Download directory |
-| `DISPLAY` | `:99` | Xvfb display for headed Chrome |
-| `VNC_PORT` | `5900` | x11vnc RFB listen port (internal only) |
-| `VNC_VIEW_ONLY` | `true` | Operator watch only until T023 |
+| `9222` / `9223` | nginx front / Chromium loopback ports |
+| `/data/chrome-profile` | Persistent profile path |
+| `/data/downloads` | Download directory |
+| `:99` / `5900` | Xvfb display / internal x11vnc port |
+| `VNC_VIEW_ONLY` | Operator watch only until T023 |
 
 Modern Chromium refuses non-loopback DevTools binds and rejects `Host` headers that
-are not localhost/IP. The entrypoint runs Chromium on `127.0.0.1:${CDP_LOOPBACK_PORT}`
-and **nginx-light** listens on `0.0.0.0:${CDP_PORT}`, proxying with
+are not localhost/IP. The entrypoint runs Chromium on `127.0.0.1:9223`
+and **nginx-light** listens on `0.0.0.0:9222`, proxying with
 `Host: 127.0.0.1` and WebSocket upgrade support so `http://browser:9222` works for
 sibling services. Do not add host port mappings like `"9222:9222"` or `"5900:5900"`.
 
@@ -86,7 +84,7 @@ The controller owns `BrowserSessionManager`:
   controller, e.g. a docker.sock mount — off by default).
 - **Attach** — Browser Use connects with `is_local=False` and `keep_alive=True`
   against the rewritten WebSocket URL. Chromium already uses
-  `CHROME_USER_DATA_DIR` on volume `chrome_profile`.
+  `/data/chrome-profile` on volume `chrome_profile`.
 - **Single interactive session** — a second run gets `BrowserSessionBusyError`.
 - **Idle TTL** — after release, `BROWSER_IDLE_TTL_SECONDS` (default 300) calls
   Browser Use `stop()` (detach only; does **not** `kill()` Chromium), so the
@@ -97,9 +95,9 @@ The controller owns `BrowserSessionManager`:
 - **Headed + live view** — Chromium runs on Xvfb; operators watch via Authelia-gated
   noVNC (`/vnc/`). See [`live-view.md`](live-view.md).
 
-Env (controller): `BROWSER_CDP_URL`, `BROWSER_PROFILE_NAME`, `CHROME_USER_DATA_DIR`,
-`CHROME_DOWNLOAD_DIR`, `BROWSER_IDLE_TTL_SECONDS`, `BROWSER_COMPOSE_CONTROL`,
-`BROWSER_STOP_ON_IDLE`. Downloads volume is mounted on the controller at
+Env (controller): `BROWSER_IDLE_TTL_SECONDS`, `BROWSER_COMPOSE_CONTROL`,
+`BROWSER_STOP_ON_IDLE`. CDP, profile, and storage paths are fixed by the Compose
+layout. Downloads volume is mounted on the controller at
 `/data/downloads` for later artifact ingestion.
 
 ### about:blank smoke
@@ -112,7 +110,7 @@ docker compose up -d browser
 docker run --rm --network browser-use_default \
   -v /opt/docker/browser-use:/app -w /app \
   -v "$HOME/.local/share/uv/python:$HOME/.local/share/uv/python:ro" \
-  -e PYTHONPATH=/app/src -e BROWSER_CDP_URL=http://browser:9222 \
+  -e PYTHONPATH=/app/src \
   --entrypoint /app/.venv/bin/python \
   python:3.14-slim-bookworm \
   -c 'import asyncio; from browser_use_agent.browser import BrowserSessionManager, load_browser_settings; \
@@ -122,7 +120,7 @@ print(asyncio.run(BrowserSessionManager(load_browser_settings()).smoke_about_bla
 Or pytest (skips when CDP is down):
 
 ```bash
-BROWSER_CDP_URL=http://browser:9222 uv run pytest -m integration tests/test_browser_session.py
+uv run pytest -m integration tests/test_browser_session.py
 ```
 
 ## Smoke test

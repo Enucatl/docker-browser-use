@@ -120,7 +120,6 @@ def postgres_url() -> Iterator[str]:
 def db_session(postgres_url: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[Session]:
     """Migrated database session; truncates audit tables between tests."""
     monkeypatch.delenv("DATABASE_HOST", raising=False)
-    monkeypatch.setenv("DATABASE_URL", postgres_url)
     upgrade_head(database_url=postgres_url)
 
     engine = create_engine(postgres_url, pool_pre_ping=True)

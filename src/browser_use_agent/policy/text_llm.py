@@ -14,7 +14,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from browser_use_agent.db.settings import read_env_or_file
+from browser_use_agent.db.settings import read_secret_file
 from browser_use_agent.policy.actions import (
     ActionKind,
     AgentAction,
@@ -63,12 +63,12 @@ def load_text_llm_settings() -> TextLLMSettings:
 
     Reads ``TEXT_LLM_BASE_URL``, ``TEXT_LLM_MODEL``, ``TEXT_LLM_MAX_TOKENS``,
     ``TEXT_LLM_TIMEOUT_SECONDS``, ``TEXT_LLM_TEMPERATURE``, and
-    ``TEXT_LLM_API_KEY`` or ``TEXT_LLM_API_KEY_FILE``.
+    ``TEXT_LLM_API_KEY_FILE``.
 
     Returns:
         Immutable settings snapshot (key may be ``None``).
     """
-    api_key = read_env_or_file("TEXT_LLM_API_KEY")
+    api_key = read_secret_file("TEXT_LLM_API_KEY")
     if api_key is not None:
         api_key = api_key.strip() or None
 
@@ -256,7 +256,7 @@ class OpenAICompatibleTextLLMClient(TextLLMClient):
         """
         if not self.settings.api_key:
             raise TextLLMNotConfiguredError(
-                "TEXT_LLM_API_KEY / TEXT_LLM_API_KEY_FILE is not configured",
+                "TEXT_LLM_API_KEY_FILE is not configured",
             )
         try:
             import niquests

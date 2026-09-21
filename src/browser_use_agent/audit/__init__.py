@@ -40,7 +40,6 @@ from browser_use_agent.audit.writer import (
     Actor,
     AuditWriter,
     AuditWriterError,
-    get_append_hook,
     set_append_hook,
 )
 
@@ -71,7 +70,6 @@ __all__ = [
     "decide_screenshot",
     "encode_screenshot",
     "event_hash_fields",
-    "get_append_hook",
     "is_destructive_action",
     "load_checkpoint_payload",
     "load_checkpoint_settings",

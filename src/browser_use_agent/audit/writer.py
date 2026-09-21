@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -19,6 +19,27 @@ from browser_use_agent.db.models import AgentEvent, Run
 from browser_use_agent.security.redaction import redact_for_audit, redact_text
 
 Actor = Literal["agent", "human", "system"]
+
+
+class AuditAppend(Protocol):
+    """Minimal audit writer surface used by audit consumers."""
+
+    def append(
+        self,
+        run_id: uuid.UUID,
+        event_type: str,
+        payload: Mapping[str, Any] | None = None,
+        *,
+        actor: str = "system",
+        step_id: uuid.UUID | None = None,
+        parent_event_id: uuid.UUID | None = None,
+        url: str | None = None,
+        tab_id: str | None = None,
+        duration_ms: int | None = None,
+        occurred_at: datetime | None = None,
+        event_id: uuid.UUID | None = None,
+    ) -> Any:
+        """Append one audit event."""
 
 _VALID_ACTORS = frozenset({"agent", "human", "system"})
 
@@ -38,15 +59,6 @@ def set_append_hook(hook: _AppendHook | None) -> None:
     """
     global _append_hook
     _append_hook = hook
-
-
-def get_append_hook() -> _AppendHook | None:
-    """Return the current post-append hook, if any.
-
-    Returns:
-        Registered hook or ``None``.
-    """
-    return _append_hook
 
 
 class AuditWriterError(ValueError):

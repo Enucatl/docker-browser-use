@@ -10,6 +10,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from browser_use_agent import __version__
 from browser_use_agent.agent.worker import RunWorker, load_run_worker_settings
 from browser_use_agent.api.auth import RemoteUserAuthMiddleware
 from browser_use_agent.api.csrf import CsrfOriginMiddleware
@@ -60,7 +61,7 @@ def create_app(
         if manager is not None:
             await manager.shutdown()
 
-    app = FastAPI(title="browser-use agent controller", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="browser-use agent controller", version=__version__, lifespan=lifespan)
     app.state.settings = resolved
     app.state.event_bus = get_event_bus()
     set_append_hook(_bridge_audit_to_event_bus)

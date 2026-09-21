@@ -8,25 +8,12 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from browser_use_agent.agent.worker import RunWorker
 from browser_use_agent.api.deps import get_session
 from browser_use_agent.api.routes.runs import RunResponse, _to_response
 from browser_use_agent.runs.status import RunStatus
 from browser_use_agent.services import runs as run_service
 
 router = APIRouter(prefix="/api/runs", tags=["run-controls"])
-
-
-def _worker(request: Request) -> RunWorker | None:
-    """Return the app run worker when configured.
-
-    Args:
-        request: Current request.
-
-    Returns:
-        :class:`RunWorker` or ``None``.
-    """
-    return getattr(request.app.state, "run_worker", None)
 
 
 @router.post("/{run_id}/pause", response_model=RunResponse)
@@ -90,7 +77,7 @@ async def retry_run(
     session.commit()
 
     if run.status == RunStatus.QUEUED.value:
-        worker = _worker(request)
+        worker = getattr(request.app.state, "run_worker", None)
         if worker is not None:
             await worker.start_run(run_id)
             session.expire_all()

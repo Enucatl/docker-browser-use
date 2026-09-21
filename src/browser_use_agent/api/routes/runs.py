@@ -11,7 +11,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
-from browser_use_agent.agent.worker import RunWorker
 from browser_use_agent.api.deps import get_session
 from browser_use_agent.db.models import Run
 from browser_use_agent.services import runs as run_service
@@ -70,18 +69,6 @@ def _to_response(run: Run) -> RunResponse:
     )
 
 
-def _worker(request: Request) -> RunWorker | None:
-    """Return the app run worker when configured.
-
-    Args:
-        request: Current request.
-
-    Returns:
-        :class:`RunWorker` or ``None``.
-    """
-    return getattr(request.app.state, "run_worker", None)
-
-
 @router.post("", response_model=RunResponse, status_code=status.HTTP_201_CREATED)
 async def create_run(
     body: CreateRunRequest,
@@ -93,7 +80,7 @@ async def create_run(
     # Commit before the worker so it sees the queued row.
     session.commit()
 
-    worker = _worker(request)
+    worker = getattr(request.app.state, "run_worker", None)
     if worker is not None:
         await worker.start_run(run.id)
         session.expire_all()

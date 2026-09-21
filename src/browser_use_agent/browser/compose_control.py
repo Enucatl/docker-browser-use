@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
-from pathlib import Path
 
 from browser_use_agent.browser.settings import BrowserSettings
 
@@ -84,17 +83,3 @@ async def compose_stop_browser(settings: BrowserSettings) -> None:
             f"docker compose stop failed ({proc.returncode}): "
             f"{stderr.decode(errors='replace') or stdout.decode(errors='replace')}"
         )
-
-
-def compose_project_dir_exists(settings: BrowserSettings) -> bool:
-    """Return whether ``compose_project_dir`` is set and exists.
-
-    Args:
-        settings: Browser settings.
-
-    Returns:
-        True when a project directory is configured and present on disk.
-    """
-    if not settings.compose_project_dir:
-        return True
-    return Path(settings.compose_project_dir).is_dir()

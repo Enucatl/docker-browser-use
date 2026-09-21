@@ -3,8 +3,6 @@
 # Raw VNC (5900) stays Compose-internal; Authelia-gated noVNC is a sibling service.
 FROM debian:bookworm-slim
 
-ARG VERSION=0.0.0
-
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -26,8 +24,7 @@ RUN groupadd --system --gid 1000 browser \
     && mkdir -p /data/chrome-profile /data/downloads /tmp/chromium \
     && chown -R browser:browser /data /home/browser /tmp/chromium
 
-ENV VERSION=${VERSION} \
-    HOME=/home/browser \
+ENV HOME=/home/browser \
     CHROME_USER_DATA_DIR=/data/chrome-profile \
     CHROME_DOWNLOAD_DIR=/data/downloads \
     CDP_PORT=9222 \

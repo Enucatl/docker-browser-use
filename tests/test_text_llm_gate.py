@@ -336,7 +336,7 @@ def test_agent_loop_text_llm_failure_audited() -> None:
 
 
 def test_load_text_llm_settings_from_file(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    """API key is loaded from TEXT_LLM_API_KEY_FILE when set."""
+    """API key is loaded only from TEXT_LLM_API_KEY_FILE."""
     secret = tmp_path / "key"
     secret.write_text("sk-test-from-file\n", encoding="utf-8")
     monkeypatch.delenv("TEXT_LLM_API_KEY", raising=False)
@@ -350,6 +350,13 @@ def test_load_text_llm_settings_from_file(tmp_path: Any, monkeypatch: pytest.Mon
     assert settings.base_url == "http://llm.local/v1"
     assert settings.model == "tiny-form"
     assert settings.max_tokens == 32
+
+
+def test_load_text_llm_settings_ignores_bare_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A bare text-LLM API key is not a supported credential source."""
+    monkeypatch.setenv("TEXT_LLM_API_KEY", "ignored-env-key")
+    monkeypatch.delenv("TEXT_LLM_API_KEY_FILE", raising=False)
+    assert load_text_llm_settings().api_key is None
 
 
 def test_openai_compatible_client_posts_chat_completions() -> None:

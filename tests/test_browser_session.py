@@ -15,7 +15,7 @@ from browser_use_agent.browser.cdp import (
     rewrite_cdp_websocket_url,
     wait_for_cdp,
 )
-from browser_use_agent.browser.profiles import get_profile, load_browser_profiles
+from browser_use_agent.browser.profiles import get_profile
 from browser_use_agent.browser.session import BrowserSessionBusyError, BrowserSessionManager
 from browser_use_agent.browser.settings import BrowserSettings, load_browser_settings
 
@@ -52,10 +52,9 @@ def test_load_browser_profiles_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BROWSER_PROFILE_NAME", "default")
     monkeypatch.setenv("CHROME_USER_DATA_DIR", "/data/chrome-profile")
     monkeypatch.setenv("CHROME_DOWNLOAD_DIR", "/data/downloads")
-    profiles = load_browser_profiles(load_browser_settings())
-    assert set(profiles) == {"default"}
-    assert profiles["default"].user_data_dir == "/data/chrome-profile"
-    assert get_profile("default").downloads_dir == "/data/downloads"
+    profile = get_profile("default", settings=load_browser_settings())
+    assert profile.user_data_dir == "/data/chrome-profile"
+    assert profile.downloads_dir == "/data/downloads"
 
 
 def test_acquire_rejects_second_run() -> None:

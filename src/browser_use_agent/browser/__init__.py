@@ -6,7 +6,7 @@ from browser_use_agent.browser.cdp import (
     rewrite_cdp_websocket_url,
     wait_for_cdp,
 )
-from browser_use_agent.browser.profiles import BrowserProfileConfig, load_browser_profiles
+from browser_use_agent.browser.profiles import BrowserProfileConfig
 from browser_use_agent.browser.session import (
     BrowserSessionBusyError,
     BrowserSessionManager,
@@ -21,7 +21,6 @@ __all__ = [
     "BrowserSessionManagerError",
     "BrowserSettings",
     "CdpUnavailableError",
-    "load_browser_profiles",
     "load_browser_settings",
     "resolve_cdp_websocket_url",
     "rewrite_cdp_websocket_url",

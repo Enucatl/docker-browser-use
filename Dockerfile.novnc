@@ -3,8 +3,6 @@
 # the internal Compose network — never publishes raw VNC or CDP.
 FROM debian:bookworm-slim
 
-ARG VERSION=0.0.0
-
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -16,8 +14,7 @@ RUN apt-get update \
 RUN groupadd --system --gid 1000 novnc \
     && useradd --system --uid 1000 --gid novnc --home-dir /nonexistent --shell /usr/sbin/nologin novnc
 
-ENV VERSION=${VERSION} \
-    VNC_TARGET=browser:5900 \
+ENV VNC_TARGET=browser:5900 \
     NOVNC_PORT=6080 \
     NOVNC_WEB=/usr/share/novnc
 

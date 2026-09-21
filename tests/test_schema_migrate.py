@@ -126,8 +126,6 @@ def postgres_url() -> Iterator[str]:
 def test_upgrade_head_creates_schema(postgres_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Migrations apply cleanly and create all required tables."""
     monkeypatch.delenv("DATABASE_HOST", raising=False)
-    monkeypatch.setenv("DATABASE_URL", postgres_url)
-
     upgrade_head(database_url=postgres_url)
 
     engine = create_engine(postgres_url)

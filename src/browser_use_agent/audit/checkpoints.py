@@ -15,12 +15,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Any
 
 from sqlalchemy.orm import Session
 
 from browser_use_agent.artifacts.store import FilesystemArtifactStore
 from browser_use_agent.artifacts.zstd import zstd_decode_json, zstd_encode_json
+from browser_use_agent.audit.writer import AuditAppend
 from browser_use_agent.policy.actions import BrowserObservation
 from browser_use_agent.security.redaction import redact_for_audit
 
@@ -146,27 +147,6 @@ class CheckpointResult:
     size_bytes: int | None = None
     event_id: uuid.UUID | None = None
     skipped: bool = False
-
-
-class AuditAppend(Protocol):
-    """Minimal audit writer surface used by :class:`CheckpointWriter`."""
-
-    def append(
-        self,
-        run_id: uuid.UUID,
-        event_type: str,
-        payload: Mapping[str, Any] | None = None,
-        *,
-        actor: str = "system",
-        step_id: uuid.UUID | None = None,
-        parent_event_id: uuid.UUID | None = None,
-        url: str | None = None,
-        tab_id: str | None = None,
-        duration_ms: int | None = None,
-        occurred_at: datetime | None = None,
-        event_id: uuid.UUID | None = None,
-    ) -> Any:
-        """Append one audit event."""
 
 
 def candidate_signature(candidate: Mapping[str, Any] | Any) -> str:

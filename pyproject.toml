@@ -1,10 +1,14 @@
 [build-system]
-requires = ["uv_build>=0.12.12,<0.13"]
-build-backend = "uv_build"
+requires = [
+    "setuptools>=77",
+    "wheel",
+    "setuptools-git-versioning>=3.0,<4",
+]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "browser-use-agent"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Always-on self-hosted browser-agent service"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -25,6 +29,13 @@ dependencies = [
     "uvicorn[standard]>=0.53.0",
     "zstandard>=0.25.0",
 ]
+
+[tool.setuptools-git-versioning]
+enabled = true
+starting_version = "0.1.0"
+template = "{tag}.{ccount}"
+dev_template = "{tag}.{ccount}"
+dirty_template = "{tag}.{ccount}+g{sha}.dirty"
 
 [dependency-groups]
 dev = [

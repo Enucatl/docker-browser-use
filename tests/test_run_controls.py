@@ -448,7 +448,6 @@ def postgres_url() -> Iterator[str]:
 def api_client(postgres_url: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     """FastAPI TestClient bound to a migrated Postgres engine."""
     monkeypatch.delenv("DATABASE_HOST", raising=False)
-    monkeypatch.setenv("DATABASE_URL", postgres_url)
     upgrade_head(database_url=postgres_url)
     reset_control_hub_for_tests()
     reset_event_bus_for_tests()

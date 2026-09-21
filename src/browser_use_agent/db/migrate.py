@@ -89,18 +89,13 @@ def resolve_database_url(settings: DatabaseSettings | None = None) -> str:
         ``postgresql+psycopg://`` URL.
 
     Raises:
-        RuntimeError: When database settings are incomplete and no ``DATABASE_URL``.
+        RuntimeError: When database settings are incomplete.
     """
-    env_url = os.environ.get("DATABASE_URL")
-    if env_url:
-        return normalize_sqlalchemy_url(env_url)
-
     url = build_sqlalchemy_url(settings)
     if url is None:
         msg = (
             "Database settings incomplete; set DATABASE_HOST, DATABASE_NAME, "
-            "DATABASE_USER, and DATABASE_PASSWORD or DATABASE_PASSWORD_FILE "
-            "(or DATABASE_URL)"
+            "DATABASE_USER, and DATABASE_PASSWORD_FILE"
         )
         raise RuntimeError(msg)
     return url

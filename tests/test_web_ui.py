@@ -114,7 +114,6 @@ def postgres_url() -> Iterator[str]:
 def api_client(postgres_url: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     """FastAPI TestClient bound to a migrated Postgres engine (auth off)."""
     monkeypatch.delenv("DATABASE_HOST", raising=False)
-    monkeypatch.setenv("DATABASE_URL", postgres_url)
     upgrade_head(database_url=postgres_url)
 
     engine = create_engine(postgres_url, pool_pre_ping=True)
@@ -142,7 +141,6 @@ def api_client(postgres_url: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[T
 def auth_client(postgres_url: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     """Client with AUTH_REQUIRED (Authelia Remote-User only)."""
     monkeypatch.delenv("DATABASE_HOST", raising=False)
-    monkeypatch.setenv("DATABASE_URL", postgres_url)
     upgrade_head(database_url=postgres_url)
 
     engine = create_engine(postgres_url, pool_pre_ping=True)

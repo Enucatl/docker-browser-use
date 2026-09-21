@@ -6,15 +6,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        VERSION: ${VERSION:-0.0.0}
     image: ghcr.io/enucatl/browser-use:latest
     cpu_shares: 512
     extra_hosts:
       - "${DOCKER_DOMAIN}:host-gateway"
       - "docker-host.internal:host-gateway"
     environment:
-      - TZ=${TZ:-Europe/Zurich}
+      - TZ=Europe/Zurich
       - SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
       - BROWSER_USE_HOST=browser-use.${DOCKER_DOMAIN}
       # Prod: require Authelia Remote-User; trusted host/origin match Traefik.
@@ -24,20 +22,25 @@ services:
       - CSRF_TRUSTED_ORIGINS=https://browser-use.${DOCKER_DOMAIN}
       - DATABASE_HOST=db
       - DATABASE_PORT=5432
-      - DATABASE_NAME=${DATABASE_NAME:-browser_use}
-      - DATABASE_USER=${DATABASE_USER:-browser_use}
+      - DATABASE_NAME=browser_use
+      - DATABASE_USER=browser_use
       - DATABASE_PASSWORD_FILE=/run/secrets/postgres_password
       # Content-addressed blobs; not exposed via Traefik (see docs/artifacts.md).
       - ARTIFACTS_ROOT=/var/lib/browser-use/artifacts
       # Browser Use session manager (T013): CDP is Compose-internal only.
-      - BROWSER_CDP_URL=http://browser:9222
-      - BROWSER_PROFILE_NAME=default
-      - CHROME_USER_DATA_DIR=/data/chrome-profile
-      - CHROME_DOWNLOAD_DIR=/data/downloads
-      - BROWSER_IDLE_TTL_SECONDS=${BROWSER_IDLE_TTL_SECONDS:-300}
+      - BROWSER_IDLE_TTL_SECONDS=300
       # Optional: start/stop the browser service via docker CLI (needs socket mount).
-      - BROWSER_COMPOSE_CONTROL=${BROWSER_COMPOSE_CONTROL:-false}
-      - BROWSER_STOP_ON_IDLE=${BROWSER_STOP_ON_IDLE:-false}
+      - BROWSER_COMPOSE_CONTROL=false
+      - BROWSER_STOP_ON_IDLE=false
+      # Decision / text-fill providers (keys via Docker secrets; never env literals).
+      - JEV_BASE_URL=${JEV_BASE_URL:-https://jevtypesafeai.com/api}
+      - JEV_MODEL=${JEV_MODEL:-jev-latest}
+      - JEV_TIMEOUT_SECONDS=${JEV_TIMEOUT_SECONDS:-30}
+      - JEV_API_KEY_FILE=/run/secrets/jev_api_key
+      - TEXT_LLM_BASE_URL=${TEXT_LLM_BASE_URL:-https://openrouter.ai/api/v1}
+      - TEXT_LLM_MODEL=${TEXT_LLM_MODEL:-gpt-4.1-mini}
+      - TEXT_LLM_MAX_TOKENS=${TEXT_LLM_MAX_TOKENS:-64}
+      - TEXT_LLM_API_KEY_FILE=/run/secrets/openrouter_api_key
     restart: unless-stopped
     labels:
       - "traefik.enable=true"
@@ -69,6 +72,8 @@ services:
       - browser_downloads:/data/downloads
     secrets:
       - postgres_password
+      - jev_api_key
+      - openrouter_api_key
     networks:
       - traefik_proxy
       - default
@@ -91,8 +96,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.browser
-      args:
-        VERSION: ${VERSION:-0.0.0}
     image: ghcr.io/enucatl/browser-use-browser:latest
     user: "1000:1000"
     security_opt:
@@ -100,12 +103,7 @@ services:
     shm_size: "2gb"
     cpu_shares: 1024
     environment:
-      - TZ=${TZ:-Europe/Zurich}
-      - CDP_PORT=${CDP_PORT:-9222}
-      - CHROME_USER_DATA_DIR=/data/chrome-profile
-      - CHROME_DOWNLOAD_DIR=/data/downloads
-      - DISPLAY=${DISPLAY:-:99}
-      - VNC_PORT=${VNC_PORT:-5900}
+      - TZ=Europe/Zurich
       # T022 view-only; interactive takeover is T023.
       - VNC_VIEW_ONLY=${VNC_VIEW_ONLY:-true}
       # Required in Docker without Chrome user-namespace sandbox support.
@@ -138,14 +136,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.novnc
-      args:
-        VERSION: ${VERSION:-0.0.0}
     image: ghcr.io/enucatl/browser-use-novnc:latest
     user: "1000:1000"
     environment:
-      - TZ=${TZ:-Europe/Zurich}
-      - VNC_TARGET=browser:${VNC_PORT:-5900}
-      - NOVNC_PORT=6080
+      - TZ=Europe/Zurich
     restart: unless-stopped
     ports: []
     healthcheck:
@@ -186,9 +180,9 @@ services:
     image: postgres:18
     restart: unless-stopped
     environment:
-      - TZ=${TZ:-Europe/Zurich}
-      - POSTGRES_DB=${DATABASE_NAME:-browser_use}
-      - POSTGRES_USER=${DATABASE_USER:-browser_use}
+      - TZ=Europe/Zurich
+      - POSTGRES_DB=browser_use
+      - POSTGRES_USER=browser_use
       - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
     healthcheck:
       test:
@@ -209,6 +203,10 @@ services:
 secrets:
   postgres_password:
     file: ./secrets/postgres_password
+  jev_api_key:
+    file: ./secrets/jev_api_key
+  openrouter_api_key:
+    file: ./secrets/openrouter_api_key
 
 networks:
   default:

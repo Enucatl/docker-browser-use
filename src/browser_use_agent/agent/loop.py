@@ -13,8 +13,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Protocol
+from typing import Any
 
 from browser_use_agent.agent.approvals import (
     ApprovalContext,
@@ -33,6 +32,7 @@ from browser_use_agent.agent.takeover import wait_while_awaiting_human
 from browser_use_agent.audit.browser_actions import BrowserActionWriter
 from browser_use_agent.audit.model_calls import ModelCallWriter
 from browser_use_agent.audit.screenshots import is_destructive_action
+from browser_use_agent.audit.writer import AuditAppend
 from browser_use_agent.policy.actions import (
     ActionKind,
     AgentAction,
@@ -76,27 +76,6 @@ _FRESH_OBSERVE = object()
 
 class AgentLoopError(RuntimeError):
     """Raised when the control loop cannot continue."""
-
-
-class AuditAppend(Protocol):
-    """Minimal audit writer surface used by the loop."""
-
-    def append(
-        self,
-        run_id: uuid.UUID,
-        event_type: str,
-        payload: Mapping[str, Any] | None = None,
-        *,
-        actor: str = "system",
-        step_id: uuid.UUID | None = None,
-        parent_event_id: uuid.UUID | None = None,
-        url: str | None = None,
-        tab_id: str | None = None,
-        duration_ms: int | None = None,
-        occurred_at: datetime | None = None,
-        event_id: uuid.UUID | None = None,
-    ) -> Any:
-        """Append one audit event."""
 
 
 @dataclass(slots=True)

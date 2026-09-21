@@ -8,11 +8,11 @@ Implementation tracking: [`task_ledger.md`](../task_ledger.md).
 | Requirement | Notes |
 | --- | --- |
 | Docker + Compose | Project lives at `/opt/docker/browser-use` |
-| Shared env | `/opt/docker/.env` provides `DOCKER_DOMAIN`; export `COMPOSE_ENV_FILES=../.env,./.env` in the shell/systemd unit (listing it only inside project `.env` does not load the parent file). Project `.env` also sets a `DOCKER_DOMAIN` fallback for bare `docker compose up`. |
+| Shared env | `/opt/docker/.env` provides `DOCKER_DOMAIN`; export `COMPOSE_ENV_FILES=../.env` in the shell/systemd unit. |
 | External network | `traefik_proxy` already exists (Traefik) |
 | Authelia | Middleware `authelia@docker` + `secured@file`; wildcard `*.docker.home.arpa` already allows `group:admins` |
 | Hardening profiles | Sibling repo [`../compose-security-baseline`](../../compose-security-baseline) (`hardening.yml`) |
-| Secrets | `./secrets/postgres_password` (see [`../secrets/README.md`](../secrets/README.md)) |
+| Secrets | `./secrets/postgres_password`, `jev_api_key`, `openrouter_api_key` (see [`../secrets/README.md`](../secrets/README.md)); Puppet ACLs for remapped uid `100999` |
 
 Public URL: `https://browser-use.${DOCKER_DOMAIN}` (e.g. `https://browser-use.docker.home.arpa`).
 
@@ -22,17 +22,18 @@ No Authelia config change is required for a normal `*.docker.home.arpa` admin ap
 
 ```bash
 cd /opt/docker/browser-use
-cp .env.example .env
-export COMPOSE_ENV_FILES=../.env,./.env   # or rely on DOCKER_DOMAIN fallback in .env
+export COMPOSE_ENV_FILES=../.env
 mkdir -p secrets
 openssl rand -hex 32 > secrets/postgres_password
-chmod 600 secrets/postgres_password
+: > secrets/jev_api_key
+: > secrets/openrouter_api_key
+chmod 600 secrets/postgres_password secrets/jev_api_key secrets/openrouter_api_key
 docker compose config >/dev/null   # Host(`browser-use.docker.home.arpa`) — not blank
 ```
 
-Optional (live Jev / text LLM): add Docker secret files and wire `*_FILE` env in
-Compose — never commit keys. See `.env.example` comments for `JEV_*` and
-`TEXT_LLM_*`.
+Optional (live Jev / OpenRouter): put real one-line keys in
+`secrets/jev_api_key` and `secrets/openrouter_api_key` — never commit them.
+Compose mounts them as `JEV_API_KEY_FILE` / `TEXT_LLM_API_KEY_FILE`.
 
 ## Bring the stack up
 
@@ -68,7 +69,7 @@ Identity for API/UI actions comes from Authelia `Remote-User` (see
 
 ## Demo run (smoke without live Jev)
 
-Without `JEV_API_KEY` / `JEV_API_KEY_FILE`, the controller uses `FakeJevClient`,
+Without `JEV_API_KEY_FILE`, the controller uses `FakeJevClient`,
 which returns `DONE` on the first decide. That is enough to prove:
 
 - run create → worker → audit events → WebSocket stream → UI history
@@ -137,7 +138,7 @@ HTTP noVNC edge (`/vnc`) and the controller UI/API are on `traefik_proxy`.
 
 ## Known limitations (Phase 1)
 
-1. **Real Jev credentials** — Without `JEV_API_KEY`/`*_FILE`, decisions are fake
+1. **Real Jev credentials** — Without `JEV_API_KEY_FILE`, decisions are fake
    (`DONE` immediately). Live action selection needs a real key and reachable API.
 2. **Bitwarden** — Not installed yet (T026/T027). Login/identity/card fills are stubs.
 3. **Internal network egress** — Compose `default` is `internal: true`. The

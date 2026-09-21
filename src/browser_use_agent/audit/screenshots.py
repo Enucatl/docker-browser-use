@@ -10,17 +10,17 @@ from __future__ import annotations
 import logging
 import os
 import uuid
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime
 from enum import StrEnum
 from io import BytesIO
-from typing import Any, Protocol
+from typing import Any
 
 from sqlalchemy.orm import Session
 
 from browser_use_agent.artifacts.store import FilesystemArtifactStore
 from browser_use_agent.audit.checkpoints import StateFingerprint, fingerprint_observation
+from browser_use_agent.audit.writer import AuditAppend
 from browser_use_agent.policy.actions import ActionKind, BrowserObservation
 
 logger = logging.getLogger(__name__)
@@ -154,27 +154,6 @@ class ScreenshotResult:
     media_type: str | None = None
     event_id: uuid.UUID | None = None
     skipped: bool = False
-
-
-class AuditAppend(Protocol):
-    """Minimal audit writer surface used by :class:`ScreenshotWriter`."""
-
-    def append(
-        self,
-        run_id: uuid.UUID,
-        event_type: str,
-        payload: Mapping[str, Any] | None = None,
-        *,
-        actor: str = "system",
-        step_id: uuid.UUID | None = None,
-        parent_event_id: uuid.UUID | None = None,
-        url: str | None = None,
-        tab_id: str | None = None,
-        duration_ms: int | None = None,
-        occurred_at: datetime | None = None,
-        event_id: uuid.UUID | None = None,
-    ) -> Any:
-        """Append one audit event."""
 
 
 def is_destructive_action(kind: ActionKind | str) -> bool:

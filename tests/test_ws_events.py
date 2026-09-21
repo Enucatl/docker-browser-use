@@ -117,7 +117,6 @@ def api_client(postgres_url: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[T
     """FastAPI TestClient with migrated DB and a fresh event bus."""
     monkeypatch.delenv("DATABASE_HOST", raising=False)
     monkeypatch.delenv("AUTH_REQUIRED", raising=False)
-    monkeypatch.setenv("DATABASE_URL", postgres_url)
     upgrade_head(database_url=postgres_url)
 
     engine = create_engine(postgres_url, pool_pre_ping=True)
@@ -246,7 +245,6 @@ def test_ws_auth_required_rejects_anonymous(
 ) -> None:
     """AUTH_REQUIRED rejects WS and REST without Remote-User."""
     monkeypatch.delenv("DATABASE_HOST", raising=False)
-    monkeypatch.setenv("DATABASE_URL", postgres_url)
     upgrade_head(database_url=postgres_url)
 
     engine = create_engine(postgres_url, pool_pre_ping=True)

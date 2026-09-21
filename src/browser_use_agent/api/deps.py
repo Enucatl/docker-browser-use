@@ -9,22 +9,9 @@ from fastapi import Depends, Request
 from sqlalchemy.orm import Session, sessionmaker
 
 from browser_use_agent.api.auth import User, require_user
-from browser_use_agent.config import AppSettings
 
 # Dependency alias for routes that need the Authelia-backed principal.
 CurrentUser = Annotated[User, Depends(require_user)]
-
-
-def get_settings(request: Request) -> AppSettings:
-    """Return application settings stored on the FastAPI app state.
-
-    Args:
-        request: Current request (provides ``app.state``).
-
-    Returns:
-        Loaded :class:`~browser_use_agent.config.AppSettings`.
-    """
-    return request.app.state.settings
 
 
 def get_session(request: Request) -> Iterator[Session]:

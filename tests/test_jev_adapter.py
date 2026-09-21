@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from pydantic import ValidationError
 
@@ -20,6 +22,7 @@ from browser_use_agent.policy import (
     JevRequest,
     JevResponse,
     ScrollDirection,
+    load_jev_client_settings,
     observation_from_browser_state,
 )
 from browser_use_agent.security import REDACTED
@@ -70,6 +73,18 @@ def _sample_observation(*, empty: bool = False) -> BrowserObservation:
         pixels_below=400,
         suggested_urls=["https://example.test/app"],
     )
+
+
+def test_jev_api_key_is_file_only(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Jev ignores a bare environment API key."""
+    secret = tmp_path / "key"
+    secret.write_text("jv-test-from-file\n", encoding="utf-8")
+    monkeypatch.setenv("JEV_API_KEY", "ignored-env-key")
+    monkeypatch.delenv("JEV_API_KEY_FILE", raising=False)
+    assert load_jev_client_settings().api_key is None
+
+    monkeypatch.setenv("JEV_API_KEY_FILE", str(secret))
+    assert load_jev_client_settings().api_key == "jv-test-from-file"
 
 
 def test_action_space_encoded_once() -> None:

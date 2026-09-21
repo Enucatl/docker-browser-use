@@ -6,19 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from browser_use_agent.db import build_database_url, load_database_settings, read_env_or_file
+from browser_use_agent.db import build_database_url, load_database_settings
 
 
-def test_read_env_or_file_prefers_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """``NAME_FILE`` wins over a bare ``NAME`` env var."""
-    secret = tmp_path / "password"
-    secret.write_text("from-file\n", encoding="utf-8")
-    monkeypatch.setenv("DATABASE_PASSWORD", "from-env")
-    monkeypatch.setenv("DATABASE_PASSWORD_FILE", str(secret))
-    assert read_env_or_file("DATABASE_PASSWORD") == "from-file"
-
-
-def test_load_database_settings_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_database_settings_from_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Required DATABASE_* vars plus password file produce settings."""
     secret = tmp_path / "postgres_password"
     secret.write_text("s3cret", encoding="utf-8")
@@ -26,6 +17,7 @@ def test_load_database_settings_from_env(tmp_path: Path, monkeypatch: pytest.Mon
     monkeypatch.setenv("DATABASE_PORT", "5432")
     monkeypatch.setenv("DATABASE_NAME", "browser_use")
     monkeypatch.setenv("DATABASE_USER", "browser_use")
+    monkeypatch.setenv("DATABASE_PASSWORD", "ignored-env-password")
     monkeypatch.setenv("DATABASE_PASSWORD_FILE", str(secret))
 
     settings = load_database_settings()

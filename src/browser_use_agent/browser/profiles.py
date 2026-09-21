@@ -22,26 +22,6 @@ class BrowserProfileConfig:
     downloads_dir: str
 
 
-def load_browser_profiles(
-    settings: BrowserSettings | None = None,
-) -> dict[str, BrowserProfileConfig]:
-    """Build the configured profile map (single profile for MVP).
-
-    Args:
-        settings: Optional preloaded browser settings.
-
-    Returns:
-        Mapping of profile name to path configuration.
-    """
-    resolved = settings if settings is not None else load_browser_settings()
-    profile = BrowserProfileConfig(
-        name=resolved.default_profile,
-        user_data_dir=resolved.user_data_dir,
-        downloads_dir=resolved.downloads_dir,
-    )
-    return {profile.name: profile}
-
-
 def get_profile(
     name: str | None = None,
     *,
@@ -60,8 +40,11 @@ def get_profile(
         KeyError: When the profile name is unknown.
     """
     resolved = settings if settings is not None else load_browser_settings()
-    profiles = load_browser_profiles(resolved)
     key = name or resolved.default_profile
-    if key not in profiles:
-        raise KeyError(f"unknown browser profile {key!r}; known={sorted(profiles)}")
-    return profiles[key]
+    if key != resolved.default_profile:
+        raise KeyError(f"unknown browser profile {key!r}; known={[resolved.default_profile]}")
+    return BrowserProfileConfig(
+        name=resolved.default_profile,
+        user_data_dir=resolved.user_data_dir,
+        downloads_dir=resolved.downloads_dir,
+    )

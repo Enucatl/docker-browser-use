@@ -9,9 +9,8 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
 
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 
 from browser_use_agent.agent.approvals import (
     ApprovalRequest,
@@ -129,7 +128,7 @@ def default_jev_factory() -> JevClient:
 
 
 def default_text_llm_factory() -> TextLLMClient | None:
-    """Build a text LLM client when ``TEXT_LLM_API_KEY`` / ``*_FILE`` is set.
+    """Build a text LLM client when ``TEXT_LLM_API_KEY_FILE`` is set.
 
     Returns:
         :class:`OpenAICompatibleTextLLMClient` when configured; otherwise
@@ -521,34 +520,3 @@ class RunWorker:
         if outcome.status in TERMINAL_STATUSES:
             run.finished_at = now
         session.commit()
-
-
-def attach_run_worker(
-    *,
-    session_factory: sessionmaker[Session] | SessionFactory,
-    browser_manager: BrowserSessionManager | None = None,
-    settings: RunWorkerSettings | None = None,
-    **kwargs: Any,
-) -> RunWorker:
-    """Construct a :class:`RunWorker` for FastAPI app state.
-
-    Args:
-        session_factory: DB session factory.
-        browser_manager: Optional browser session manager.
-        settings: Optional worker settings.
-        **kwargs: Forwarded to :class:`RunWorker`.
-
-    Returns:
-        Configured worker instance.
-    """
-    factory: SessionFactory
-    if isinstance(session_factory, sessionmaker):
-        factory = session_factory
-    else:
-        factory = session_factory
-    return RunWorker(
-        factory,
-        settings=settings,
-        browser_manager=browser_manager,
-        **kwargs,
-    )

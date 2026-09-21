@@ -8,20 +8,23 @@ from pathlib import Path
 from urllib.parse import quote
 
 
-def read_env_or_file(name: str, default: str | None = None) -> str | None:
-    """Read ``NAME`` from the environment, or the path in ``NAME_FILE``.
+def read_secret_file(name: str, default: str | None = None) -> str | None:
+    """Read a secret from the path in ``NAME_FILE`` only.
 
     Args:
-        name: Base environment variable name (e.g. ``DATABASE_PASSWORD``).
-        default: Value when neither ``NAME`` nor ``NAME_FILE`` is set.
+        name: Base environment variable name (e.g. ``JEV_API_KEY``).
+        default: Value when ``NAME_FILE`` is not set.
 
     Returns:
-        File contents (newline-stripped), env value, or ``default``.
+        File contents (newline-stripped), or ``default`` when no path is set.
+
+    Raises:
+        FileNotFoundError: When ``NAME_FILE`` points to a missing file.
     """
     file_name = os.environ.get(f"{name}_FILE")
-    if file_name:
-        return Path(file_name).read_text(encoding="utf-8").rstrip("\r\n")
-    return os.environ.get(name, default)
+    if not file_name:
+        return default
+    return Path(file_name).read_text(encoding="utf-8").rstrip("\r\n")
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,7 +36,7 @@ class DatabaseSettings:
         port: Database port.
         name: Database name.
         user: Database role.
-        password: Password from env or secret file; may be empty for local stubs.
+        password: Password from the configured secret file; may be empty for local stubs.
     """
 
     host: str
@@ -56,7 +59,7 @@ def load_database_settings() -> DatabaseSettings | None:
         return None
 
     port_raw = os.environ.get("DATABASE_PORT", "5432")
-    password = read_env_or_file("DATABASE_PASSWORD") or ""
+    password = read_secret_file("DATABASE_PASSWORD") or ""
     return DatabaseSettings(
         host=host,
         port=int(port_raw),

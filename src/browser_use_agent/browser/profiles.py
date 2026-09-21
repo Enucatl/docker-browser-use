@@ -35,6 +35,7 @@ class BrowserProfileConfig:
 
 
 _PROFILE_DETAILS = {
+    "default": ("Primary", "Primary persistent browser state."),
     "personal": ("Personal", "Personal cookies and browsing state."),
     "work": ("Work", "Work cookies and browsing state."),
     "testing": ("Testing", "Isolated smoke-test profile; default."),

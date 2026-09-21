@@ -78,6 +78,21 @@ main {
   margin-top: 0;
 }
 
+.panel-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.live-view iframe {
+  display: block;
+  width: 100%;
+  min-height: 32rem;
+  border: 1px solid var(--border);
+  background: #111;
+}
+
 .muted {
   color: var(--muted);
 }

@@ -18,7 +18,7 @@ docker compose up -d browser novnc
 docker compose exec browser curl -sf http://127.0.0.1:9222/json/version
 docker compose exec browser sh -c \
   'test -r /usr/lib/chromium/extensions/external_extensions.json && \
-   find /data/chrome-profiles/testing -path "*/Extensions/nngceckbapebfimnlniiiahkandclblb/*" -print -quit | grep -q .'
+   find /data/chrome-profiles/default -path "*/Extensions/nngceckbapebfimnlniiiahkandclblb/*" -print -quit | grep -q .'
 ```
 
 The first command exercises headless Chromium with the extension registered;
@@ -27,17 +27,8 @@ the CDP request exercises the headed Xvfb session. In the live view at
 confirm **Bitwarden Password Manager** is present. Then restart `browser` and
 check the extension again to verify the profile volume survives recreation.
 
-The browser network is intentionally internal. If the agent vault server or
-Bitwarden cloud needs network access for sign-in, temporarily attach the
-running container to an egress-capable Docker network, and disconnect it as
-soon as setup is complete:
-
-```bash
-BROWSER_CONTAINER="$(docker compose ps -q browser)"
-docker network connect bridge "$BROWSER_CONTAINER"
-# Complete the takeover steps below, then:
-docker network disconnect bridge "$BROWSER_CONTAINER"
-```
+The browser has outbound access through the dedicated `browser_egress` network;
+the shared Compose `default` network remains internal.
 
 ## Human takeover: sign in and unlock
 

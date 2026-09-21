@@ -84,7 +84,7 @@ def load_browser_settings() -> BrowserSettings:
         Immutable browser settings snapshot.
     """
     project_dir = os.environ.get("BROWSER_COMPOSE_PROJECT_DIR", "").strip() or None
-    default_profile = os.environ.get("BROWSER_PROFILE_NAME", "testing").strip() or "testing"
+    default_profile = os.environ.get("BROWSER_PROFILE_NAME", "default").strip() or "default"
     configured_root = os.environ.get("BROWSER_PROFILE_ROOT")
     legacy_user_data_dir = os.environ.get("CHROME_USER_DATA_DIR")
     profile_root = (
@@ -97,13 +97,12 @@ def load_browser_settings() -> BrowserSettings:
     user_data_dir = legacy_user_data_dir or f"{profile_root}/{default_profile}"
     raw_ids = os.environ.get(
         "BROWSER_PROFILE_IDS",
-        "default" if default_profile == "default" else "personal,work,testing",
+        "default,testing",
     )
     profile_ids = tuple(part.strip() for part in raw_ids.split(",") if part.strip())
     raw_cdp_urls = os.environ.get(
         "BROWSER_PROFILE_CDP_URLS",
-        "testing=http://browser:9222,personal=http://browser-personal:9222,"
-        "work=http://browser-work:9222",
+        "default=http://browser:9222,testing=http://browser-test:9222",
     )
     profile_cdp_urls = tuple(
         (profile_id.strip(), url.strip())

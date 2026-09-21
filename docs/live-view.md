@@ -30,17 +30,18 @@ matches the `/vnc` prefix before stripprefix.
 Operator Firefox
   → Traefik HTTPS + Authelia + secured@file
   → novnc (websockify :6080) on traefik_proxy + internal net
-  → browser:5900 (x11vnc, view-only) on internal net only
+  → browser:5900 (x11vnc, view-only) on the internal default net
   → Xvfb :99 ← headed Chromium
 
-CDP stays on browser:9222 (nginx→loopback), internal net only — never Traefik.
+CDP stays un-published on browser:9222 (nginx→loopback); the controller reaches
+it on the internal default net, never Traefik.
 ```
 
 | Port | Where | Public? |
 | --- | --- | --- |
 | 6080 HTTP (noVNC) | `novnc` via Traefik `/vnc` | Yes, Authelia-gated |
-| 5900 RFB (VNC) | `browser` internal | No |
-| 9222 CDP | `browser` internal | No |
+| 5900 RFB (VNC) | `browser` Compose network | No |
+| 9222 CDP | `browser` Compose network | No |
 
 ## Hardening
 
@@ -54,8 +55,8 @@ Xvfb + x11vnc memory/PID headroom). Still **not** `hardened-*`:
 2. **Xvfb + x11vnc** need a writable `/tmp` for the X11 socket and locks (compose
    tmpfs). `cap_drop: ALL` + read-only rootfs has not been validated for this
    stack; revisit later if needed.
-3. **x11vnc `-nopw`** — raw RFB is not host-published and the Compose `default`
-   network is `internal: true`. Edge auth is Authelia on HTTP noVNC, not an RFB
+3. **x11vnc `-nopw`** — raw RFB is not host-published; noVNC reaches it over the
+   internal `default` network. Edge auth is Authelia on HTTP noVNC, not an RFB
    password. Do not add `"5900:5900"` host mappings.
 4. **`VNC_VIEW_ONLY=true` (default)** — operators can watch but not drive Chrome.
    T023 will add interactive takeover.

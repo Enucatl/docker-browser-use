@@ -54,14 +54,14 @@ already allows `group:admins`. Auth details: [`docs/auth.md`](docs/auth.md).
 | --- | --- | --- |
 | `controller` | FastAPI + Agent Web UI | Yes (Authelia) |
 | `novnc` | Live Chrome view at `/vnc/` | Yes (Authelia) |
-| `browser` | Headed Chromium, CDP `:9222`, x11vnc `:5900` | **No** — internal only |
+| `browser` | Headed Chromium, CDP `:9222`, x11vnc `:5900` | **No** — no host exposure; browser-only egress |
 | `db` | Postgres audit store | **No** — internal only |
 
 CDP and raw VNC are **never** host-published and never on `traefik_proxy`. Verify
 with the smoke checklist § B.
 
-Persistent Chrome profiles: volume `chrome_profiles`, with isolated
-`personal`, `work`, and default `testing` directories. Artifacts:
+Persistent Chrome profiles: volume `chrome_profiles`, with a primary `default`
+directory and an optional isolated `testing` worker. Artifacts:
 volume `artifacts_data` at `/var/lib/browser-use/artifacts` on the controller —
 [`docs/artifacts.md`](docs/artifacts.md). Browser runtime / hardening:
 [`docs/browser-runtime.md`](docs/browser-runtime.md).
@@ -77,7 +77,7 @@ volume `artifacts_data` at `/var/lib/browser-use/artifacts` on the controller �
 
 - **Jev:** without `JEV_API_KEY_FILE`, FakeJev returns `DONE` (UI/audit smoke only)
 - **Bitwarden:** extension installation and human unlock: [`docs/bitwarden-setup.md`](docs/bitwarden-setup.md); login autofill uses the extension shortcut, while identity/card popup selection remains fail-closed
-- **Browser egress:** Compose `default` is `internal: true` — Chromium cannot load public sites yet
+- **Browser egress:** Chromium uses the browser-only `browser_egress` network; the default service network remains internal
 - **`/vnc`:** confirm manually behind Authelia after deploy
 
 ```bash

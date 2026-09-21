@@ -17,6 +17,18 @@
   </p>
 </section>
 
+<section class="panel live-view">
+  <div class="panel-heading">
+    <h2>Live browser</h2>
+    <a href="{{ vnc_url }}" target="_blank" rel="noopener">Open separately</a>
+  </div>
+  <iframe
+    src="{{ vnc_url }}"
+    title="Live browser view"
+    loading="lazy"
+  ></iframe>
+</section>
+
 <section class="panel">
   <h2>Cost</h2>
   <p class="cost">{% if run.cost is not none %}${{ run.cost }} USD{% else %}No priced model calls yet.{% endif %}</p>

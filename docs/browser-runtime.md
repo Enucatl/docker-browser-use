@@ -8,16 +8,17 @@ Bitwarden is installed by the browser image; vault setup is documented in
 
 - Runs **headed** Chromium on **Xvfb** with Chrome DevTools Protocol (CDP) for
   Browser Use, plus **x11vnc** for the live view pipeline.
-- Joins the **internal** Compose network only — never `traefik_proxy`.
+- Joins the internal default network plus browser-only egress — never
+  `traefik_proxy`.
 - Does **not** publish CDP (9222) or VNC (5900) on the host. Peers reach CDP as
-  `browser:9222`; noVNC reaches VNC as `browser:5900` on the internal net.
+  `browser:9222`; noVNC reaches VNC as `browser:5900` on the internal default net.
 - Public live view is the sibling **`novnc`** service — see [`live-view.md`](live-view.md).
 
 ## Volumes
 
 | Volume | Mount | Purpose |
 | --- | --- | --- |
-| `chrome_profiles` | `/data/chrome-profiles/<personal\|work\|testing>` | Isolated persistent Chrome profiles (cookies, Bitwarden extension state) |
+| `chrome_profiles` | `/data/chrome-profiles/<default\|testing>` | Primary and optional test Chrome profiles (cookies, Bitwarden extension state) |
 | `browser_downloads` | `/data/downloads` | Downloads; share with controller when the session manager needs it |
 
 The image registers Bitwarden as an external Chromium extension. On first Chrome
@@ -43,7 +44,7 @@ Why not full `hardened-*`:
    `no-new-privileges` enabled while allowing Chromium's own sandbox to start.
 3. **Xvfb + x11vnc (T022)** — need `/tmp` X11 sockets/locks and extra RAM/PIDs for
    a headed session. Profile bumped from `limits-xlarge` → `limits-xxlarge`
-   (3g / 768 pids). Raw VNC uses `-nopw` because RFB is internal-only; Authelia
+   (3g / 768 pids). Raw VNC uses `-nopw` because RFB is not host-published; Authelia
    gates the HTTP noVNC edge (see [`live-view.md`](live-view.md)).
 
 What we still apply:
@@ -64,7 +65,7 @@ future Chrome build supports the full read-only runtime profile cleanly.
 | Fixed value | Meaning |
 | --- | --- | --- |
 | `9222` / `9223` | nginx front / Chromium loopback ports |
-| `/data/chrome-profile` | Persistent profile path |
+| `/data/chrome-profiles/{default\|testing}` | Persistent profile path |
 | `/data/downloads` | Download directory |
 | `:99` / `5900` | Xvfb display / internal x11vnc port |
 | `VNC_VIEW_ONLY` | Operator watch only until T023 |
@@ -75,8 +76,8 @@ and **nginx-light** listens on `0.0.0.0:9222`, proxying with
 `Host: 127.0.0.1` and WebSocket upgrade support so `http://browser:9222` works for
 sibling services. Do not add host port mappings like `"9222:9222"` or `"5900:5900"`.
 
-Controller connection strings are `browser:9222` (Testing),
-`browser-personal:9222` (Personal), and `browser-work:9222` (Work). CDP clients that follow
+The primary controller connection is `browser:9222` (Default). The optional test
+worker uses `browser-test:9222` (Testing). CDP clients that follow
 `webSocketDebuggerUrl` still see `127.0.0.1:9223` in `/json/version` JSON. The
 session manager (`browser_use_agent.browser`) rewrites that host/port to the
 peer CDP URL before attaching Browser Use (same idea as Playwright).
@@ -104,12 +105,13 @@ The controller owns `BrowserSessionManager`:
 
 Env (controller): `BROWSER_IDLE_TTL_SECONDS`, `BROWSER_COMPOSE_CONTROL`,
 `BROWSER_STOP_ON_IDLE`, `BROWSER_PROFILE_NAME`, `BROWSER_PROFILE_ROOT`, and
-`BROWSER_PROFILE_CDP_URLS`. Testing is the default profile. Downloads volume is
-mounted on the controller at `/data/downloads` for later artifact ingestion.
+`BROWSER_PROFILE_CDP_URLS`. Default is the primary profile; testing is optional.
+Downloads volume is mounted on the controller at `/data/downloads` for later
+artifact ingestion.
 
 ### about:blank smoke
 
-With the browser service healthy on the internal network:
+With the browser service healthy on the internal default network:
 
 ```bash
 docker compose up -d browser

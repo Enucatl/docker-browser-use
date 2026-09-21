@@ -169,6 +169,37 @@ def test_empty_candidates_drops_targeted_ops_and_fake_done() -> None:
     assert action.probabilities
 
 
+def test_goal_urls_become_navigation_choices() -> None:
+    """Bare and explicit URLs in a goal are available from the initial blank page."""
+    adapter = JevAdapter()
+    obs = BrowserObservation(url="about:blank", candidates=[])
+
+    req = adapter.to_jev_request(
+        obs,
+        goal="Compare ansa.it/news with https://www.corriere.it/ today.",
+    )
+
+    assert req.state["goal_urls"] == [
+        "https://ansa.it/news",
+        "https://www.corriere.it/",
+    ]
+    assert req.questions["navigate_url"].criteria == {
+        "https://ansa.it/news": "https://ansa.it/news",
+        "https://www.corriere.it/": "https://www.corriere.it/",
+    }
+
+
+def test_navigation_is_not_advertised_without_a_url() -> None:
+    """Jev cannot choose an invalid navigation operation with no target."""
+    req = JevAdapter().to_jev_request(
+        BrowserObservation(url="about:blank", candidates=[]),
+        goal="Summarize the current page.",
+    )
+
+    assert "NAVIGATE" not in req.questions["operation"].criteria
+    assert "navigate_url" not in req.questions
+
+
 def test_fake_client_click_preserves_confidence_and_probabilities() -> None:
     """Fake Jev drives a CLICK decision with audit-ready confidence fields."""
     adapter = JevAdapter()

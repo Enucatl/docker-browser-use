@@ -1,6 +1,6 @@
-# Chromium worker image for Browser Use CDP + Xvfb/x11vnc (internal network only).
+# Chromium worker image for Browser Use CDP + Xvfb/x11vnc.
 # Keep this image free of app Python code; the controller talks to CDP over Compose DNS.
-# Raw VNC (5900) stays Compose-internal; Authelia-gated noVNC is a sibling service.
+# Raw VNC (5900) stays un-published; Authelia-gated noVNC is a sibling service.
 FROM debian:bookworm-slim
 
 ARG BITWARDEN_EXTENSION_VERSION=2026.8.0
@@ -59,7 +59,7 @@ RUN chmod 755 /usr/local/bin/browser-entrypoint.sh \
 USER browser
 WORKDIR /home/browser
 
-# CDP and VNC stay internal to the Compose network — never publish on the host.
+# CDP and VNC stay un-published; controller/noVNC use the internal default network.
 EXPOSE 9222 5900
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=5 \

@@ -209,6 +209,7 @@ def home(
             "user": user,
             "runs": [_run_context(run, session) for run in runs],
             "profiles": list_profiles(settings=request.app.state.settings.browser),
+            "default_profile": request.app.state.settings.browser.default_profile,
             "error": request.query_params.get("error"),
         },
     )

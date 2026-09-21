@@ -42,9 +42,10 @@ services:
       - ARTIFACT_S3_SSE=${ARTIFACT_S3_SSE:-}
       # Browser Use session manager (T013): CDP is Compose-internal only.
       - BROWSER_IDLE_TTL_SECONDS=300
-      - BROWSER_PROFILE_NAME=testing
+      - BROWSER_PROFILE_NAME=default
       - BROWSER_PROFILE_ROOT=/data/chrome-profiles
-      - BROWSER_PROFILE_CDP_URLS=testing=http://browser:9222,personal=http://browser-personal:9222,work=http://browser-work:9222
+      - BROWSER_PROFILE_IDS=default,testing
+      - BROWSER_PROFILE_CDP_URLS=default=http://browser:9222,testing=http://browser-test:9222
       # Optional: start/stop the browser service via docker CLI (needs socket mount).
       - BROWSER_COMPOSE_CONTROL=false
       - BROWSER_STOP_ON_IDLE=false
@@ -97,12 +98,6 @@ services:
       browser:
         condition: service_healthy
         required: false
-      browser-personal:
-        condition: service_healthy
-        required: false
-      browser-work:
-        condition: service_healthy
-        required: false
 
   # Internal Chromium/CDP worker + Xvfb/x11vnc. Not on traefik_proxy; CDP/VNC
   # are not host-published. Live HTTP view is the sibling `novnc` service.
@@ -124,7 +119,7 @@ services:
     cpu_shares: 1024
     environment:
       - TZ=Europe/Zurich
-      - CHROME_USER_DATA_DIR=/data/chrome-profiles/testing
+      - CHROME_USER_DATA_DIR=/data/chrome-profiles/default
       # T022 view-only; interactive takeover is T023.
       - VNC_VIEW_ONLY=${VNC_VIEW_ONLY:-true}
       - CHROMIUM_FLAGS=--disable-gpu --disable-dev-shm-usage
@@ -139,24 +134,16 @@ services:
       - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
     networks:
       - default
+      - browser_egress
 
-  browser-personal:
+  # Optional isolated worker for smoke/test runs. Start with:
+  # docker compose --profile test up -d browser-test
+  browser-test:
     extends:
       service: browser
+    profiles: [test]
     environment:
-      - CHROME_USER_DATA_DIR=/data/chrome-profiles/personal
-    volumes:
-      - chrome_profiles:/data/chrome-profiles
-      - browser_downloads:/data/downloads
-
-  browser-work:
-    extends:
-      service: browser
-    environment:
-      - CHROME_USER_DATA_DIR=/data/chrome-profiles/work
-    volumes:
-      - chrome_profiles:/data/chrome-profiles
-      - browser_downloads:/data/downloads
+      - CHROME_USER_DATA_DIR=/data/chrome-profiles/testing
 
   # Authelia-gated noVNC HTTP edge. Joins traefik_proxy for /vnc only; bridges
   # to browser:5900 on the internal network. CDP never touches this service.
@@ -270,6 +257,8 @@ secrets:
 networks:
   default:
     internal: true
+  # Browser-only outbound access; the default service network stays internal.
+  browser_egress: {}
   traefik_proxy:
     external: true
 

@@ -10,7 +10,7 @@
     <label for="profile_id">Chrome profile</label>
     <select id="profile_id" name="profile_id">
       {% for profile in profiles %}
-      <option value="{{ profile.id }}"{% if profile.id == 'testing' %} selected{% endif %}>{{ profile.display_name }} — {{ profile.notes }}</option>
+      <option value="{{ profile.id }}"{% if profile.id == default_profile %} selected{% endif %}>{{ profile.display_name }} — {{ profile.notes }}</option>
       {% endfor %}
     </select>
     <button type="submit">Start run</button>

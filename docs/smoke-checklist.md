@@ -35,7 +35,8 @@ docker inspect "$(docker compose ps -q browser)" \
 # Browser must not be on traefik_proxy
 docker inspect "$(docker compose ps -q browser)" \
   --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
-# Expect: only the project default / internal network name
+# Expect: project default / internal network plus the browser egress network;
+# never traefik_proxy
 ```
 
 - [ ] `docker compose port browser 9222` fails or shows no host binding
@@ -124,7 +125,8 @@ Approval / takeover (manual when a gate fires):
 
 - [ ] No real Jev key → decisions are fake (`DONE`)
 - [ ] Bitwarden not installed (T026+)
-- [ ] Browser has no public egress (`default` network `internal: true`)
+- [ ] Browser has `browser_egress` plus the internal `default` network; other
+      services remain on the internal network only
 - [ ] `/vnc` verified manually behind Authelia
 
 ## Pass criteria

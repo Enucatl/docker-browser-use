@@ -1,8 +1,8 @@
 #!/bin/sh
-# Launch headed Chromium on Xvfb with internal CDP + internal VNC.
+# Launch headed Chromium on Xvfb with un-published CDP + VNC.
 # Chromium binds DevTools to loopback only; nginx publishes CDP on 0.0.0.0:CDP_PORT
 # with Host rewritten to localhost. Host publishing of CDP/VNC remains omitted in compose.
-# x11vnc listens on the Compose-internal network only; noVNC (Traefik/Authelia) is separate.
+# noVNC (Traefik/Authelia) reaches x11vnc over the internal default network.
 set -eu
 
 USER_DATA_DIR="${CHROME_USER_DATA_DIR:-/data/chrome-profile}"
@@ -72,8 +72,8 @@ if [ "${VNC_VIEW_ONLY}" = "true" ] || [ "${VNC_VIEW_ONLY}" = "1" ]; then
   viewonly_args="-viewonly"
 fi
 
-# Internal VNC only — never publish ${VNC_PORT} on the host or traefik_proxy.
-# -nopw: Authelia gates the HTTP noVNC edge; raw RFB stays on the internal network.
+# Never publish ${VNC_PORT} on the host or traefik_proxy.
+# -nopw: Authelia gates the HTTP noVNC edge; raw RFB is not an external service.
 x11vnc \
   -display "${DISPLAY}" \
   -forever \

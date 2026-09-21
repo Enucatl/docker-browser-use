@@ -88,9 +88,8 @@ Steps:
    run is active (needs a real Jev script or a slow page — see limitations).
 4. Open **Open live view (/vnc)** (Authelia again if prompted) to see headed Chrome.
 
-With real Jev credentials configured, use a concrete browse goal. Remember the
-browser Compose network is `internal: true` — public page loads may fail until
-egress is designed (see limitations).
+With real Jev credentials configured, use a concrete browse goal. Chromium has
+outbound access through the dedicated `browser_egress` network.
 
 ## Pause / approve / takeover
 
@@ -110,7 +109,7 @@ Take-control is the **agent mutex**. Interactive VNC (disable
 | --- | --- |
 | Audit / runs / hash chain | Postgres volume `pgdata` (`agent_events`, …) |
 | Artifact blobs | Volume `artifacts_data` → `/var/lib/browser-use/artifacts` on controller |
-| Chrome profiles | Volume `chrome_profiles` → `/data/chrome-profiles/{personal,work,testing}` on browser services |
+| Chrome profiles | Volume `chrome_profiles` → `/data/chrome-profiles/{default,testing}` on browser services |
 | Downloads | Volume `browser_downloads` → `/data/downloads` |
 
 Artifact layout: [`artifacts.md`](artifacts.md). Screenshots / checkpoints:
@@ -142,10 +141,9 @@ HTTP noVNC edge (`/vnc`) and the controller UI/API are on `traefik_proxy`.
    (`DONE` immediately). Live action selection needs a real key and reachable API.
 2. **Bitwarden** — Installed in the persistent profile (T026). Login autofill uses
    the extension shortcut; identity/card fills remain fail-closed (T027).
-3. **Internal network egress** — Compose `default` is `internal: true`. The
-   `browser` service has no internet path, so Chromium cannot load public sites
-   until an intentional egress design lands. The controller can still reach
-   outbound APIs via `traefik_proxy` when keyed.
+3. **Browser egress** — Chromium uses the dedicated `browser_egress` network.
+   The shared Compose `default` network remains internal, and CDP/VNC still have
+   no host ports or Traefik route.
 4. **Authelia + `/vnc`** — Manual verify: open `/vnc/` after Authelia login and
    confirm the desktop appears. Do not bypass Authelia for this path.
 5. **Text LLM** — `TYPE_TEXT` without pre-filled text needs `TEXT_LLM_*` or fails closed.

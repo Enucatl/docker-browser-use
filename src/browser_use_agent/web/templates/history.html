@@ -11,7 +11,7 @@
       <a href="/runs/{{ run.id }}">
         <span class="status status-{{ run.status }}">{{ run.status }}</span>
         <span class="goal">{{ run.goal }}</span>
-        <span class="muted">{{ run.created_at }} · Cost: {% if run.cost is not none %}${{ run.cost }}{% else %}—{% endif %}</span>
+        <span class="muted">{{ run.created_at }} · {{ run.profile_id }} · Cost: {% if run.cost is not none %}${{ run.cost }}{% else %}—{% endif %}</span>
       </a>
     </li>
     {% endfor %}

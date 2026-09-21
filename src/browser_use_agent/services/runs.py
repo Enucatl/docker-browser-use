@@ -38,7 +38,7 @@ def create_run(
     Args:
         session: Active SQLAlchemy session (caller commits).
         goal: Operator natural-language goal.
-        profile_id: Optional browser profile key (stub until multi-profile).
+        profile_id: Optional browser profile key.
 
     Returns:
         The persisted :class:`~browser_use_agent.db.models.Run` row.

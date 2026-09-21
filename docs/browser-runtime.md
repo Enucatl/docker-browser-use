@@ -17,7 +17,7 @@ Bitwarden is installed by the browser image; vault setup is documented in
 
 | Volume | Mount | Purpose |
 | --- | --- | --- |
-| `chrome_profile` | `/data/chrome-profile` | Persistent agent Chrome profile (cookies, Bitwarden extension state) |
+| `chrome_profiles` | `/data/chrome-profiles/<personal\|work\|testing>` | Isolated persistent Chrome profiles (cookies, Bitwarden extension state) |
 | `browser_downloads` | `/data/downloads` | Downloads; share with controller when the session manager needs it |
 
 The image registers Bitwarden as an external Chromium extension. On first Chrome
@@ -75,7 +75,8 @@ and **nginx-light** listens on `0.0.0.0:9222`, proxying with
 `Host: 127.0.0.1` and WebSocket upgrade support so `http://browser:9222` works for
 sibling services. Do not add host port mappings like `"9222:9222"` or `"5900:5900"`.
 
-Controller connection string: `http://browser:9222`. CDP clients that follow
+Controller connection strings are `browser:9222` (Testing),
+`browser-personal:9222` (Personal), and `browser-work:9222` (Work). CDP clients that follow
 `webSocketDebuggerUrl` still see `127.0.0.1:9223` in `/json/version` JSON. The
 session manager (`browser_use_agent.browser`) rewrites that host/port to the
 peer CDP URL before attaching Browser Use (same idea as Playwright).
@@ -89,8 +90,9 @@ The controller owns `BrowserSessionManager`:
   controller, e.g. a docker.sock mount — off by default).
 - **Attach** — Browser Use connects with `is_local=False` and `keep_alive=True`
   against the rewritten WebSocket URL. Chromium already uses
-  `/data/chrome-profile` on volume `chrome_profile`.
-- **Single interactive session** — a second run gets `BrowserSessionBusyError`.
+  `/data/chrome-profiles/<profile>` on volume `chrome_profiles`.
+- **Per-profile exclusivity** — a second run selecting an in-use profile gets
+  `BrowserSessionBusyError`; different profiles may run concurrently.
 - **Idle TTL** — after release, `BROWSER_IDLE_TTL_SECONDS` (default 300) calls
   Browser Use `stop()` (detach only; does **not** `kill()` Chromium), so the
   persistent profile is not corrupted. Optional `BROWSER_STOP_ON_IDLE` can stop
@@ -101,9 +103,9 @@ The controller owns `BrowserSessionManager`:
   noVNC (`/vnc/`). See [`live-view.md`](live-view.md).
 
 Env (controller): `BROWSER_IDLE_TTL_SECONDS`, `BROWSER_COMPOSE_CONTROL`,
-`BROWSER_STOP_ON_IDLE`. CDP, profile, and storage paths are fixed by the Compose
-layout. Downloads volume is mounted on the controller at
-`/data/downloads` for later artifact ingestion.
+`BROWSER_STOP_ON_IDLE`, `BROWSER_PROFILE_NAME`, `BROWSER_PROFILE_ROOT`, and
+`BROWSER_PROFILE_CDP_URLS`. Testing is the default profile. Downloads volume is
+mounted on the controller at `/data/downloads` for later artifact ingestion.
 
 ### about:blank smoke
 

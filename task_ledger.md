@@ -73,7 +73,7 @@ Status values: `todo` · `ready` · `blocked` · `in_progress` · `done` · `can
 | T028 | Richer approval policy engine (rules + UI reasons) | T021 | done | [tasks/T028.md](tasks/T028.md) |
 | T029 | Cost entries and simple cost dashboard API/UI | T017, T024 | done | [tasks/T029.md](tasks/T029.md) |
 | T030 | OpenTelemetry instrumentation alongside Postgres audit | T015 | done | [tasks/T030.md](tasks/T030.md) |
-| T031 | Multi-profile support (Personal / Work / Testing) | T013, T024 | ready | [tasks/T031.md](tasks/T031.md) |
+| T031 | Multi-profile support (Personal / Work / Testing) | T013, T024 | done | [tasks/T031.md](tasks/T031.md) |
 
 ## Phase 3 — Evaluation and storage maturity
 

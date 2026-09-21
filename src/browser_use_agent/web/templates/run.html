@@ -9,6 +9,7 @@
     <strong id="run-status" class="status status-{{ run.status }}">{{ run.status }}</strong>
     · Cost: <span id="run-cost" class="cost">{% if run.cost is not none %}${{ run.cost }} USD{% else %}—{% endif %}</span>
   </p>
+  <p class="muted">Chrome profile: {{ run.profile_id }}</p>
   <p class="muted">
     Created {{ run.created_at }}
     {% if run.started_at %} · Started {{ run.started_at }}{% endif %}

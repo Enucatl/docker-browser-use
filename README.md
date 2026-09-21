@@ -58,7 +58,8 @@ already allows `group:admins`. Auth details: [`docs/auth.md`](docs/auth.md).
 CDP and raw VNC are **never** host-published and never on `traefik_proxy`. Verify
 with the smoke checklist § B.
 
-Persistent Chrome profile: volume `chrome_profile`. Artifacts:
+Persistent Chrome profiles: volume `chrome_profiles`, with isolated
+`personal`, `work`, and default `testing` directories. Artifacts:
 volume `artifacts_data` at `/var/lib/browser-use/artifacts` on the controller —
 [`docs/artifacts.md`](docs/artifacts.md). Browser runtime / hardening:
 [`docs/browser-runtime.md`](docs/browser-runtime.md).

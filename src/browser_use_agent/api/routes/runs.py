@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from browser_use_agent.api.deps import get_session
 from browser_use_agent.audit.costs import run_cost
+from browser_use_agent.browser.profiles import get_profile
 from browser_use_agent.db.models import Run
 from browser_use_agent.services import runs as run_service
 
@@ -25,7 +26,7 @@ class CreateRunRequest(BaseModel):
     goal: str = Field(min_length=1, description="Natural-language operator goal.")
     profile_id: str | None = Field(
         default=None,
-        description="Optional browser profile key (stub until multi-profile).",
+        description="Browser profile key; defaults to the Testing profile.",
     )
 
 
@@ -78,7 +79,13 @@ async def create_run(
     session: Annotated[Session, Depends(get_session)],
 ) -> RunResponse:
     """Create a run from a natural-language goal and start the worker."""
-    run = run_service.create_run(session, body.goal.strip(), profile_id=body.profile_id)
+    try:
+        profile = get_profile(body.profile_id, settings=request.app.state.settings.browser)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    run = run_service.create_run(session, body.goal.strip(), profile_id=profile.id)
     # Commit before the worker so it sees the queued row.
     session.commit()
 

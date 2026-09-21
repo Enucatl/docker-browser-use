@@ -41,9 +41,9 @@ class BrowserSessionBusyError(BrowserSessionManagerError):
 
 
 class BrowserSessionManager:
-    """Ensure Chrome via CDP and attach a single Browser Use session per profile.
+    """Ensure Chrome via CDP and attach one exclusive session per profile.
 
-    Concurrency: one active interactive holder at a time. Idle TTL disconnects
+    Concurrency: each profile has one active interactive holder. Idle TTL disconnects
     Browser Use with ``stop()`` (does not kill Chromium), avoiding profile
     corruption from abrupt CDP teardown. Optional Compose control can start or
     stop the ``browser`` service when Docker CLI access is available.
@@ -70,21 +70,22 @@ class BrowserSessionManager:
         self._audit_factory = audit_factory
         self._session_factory = session_factory
         self._lock = asyncio.Lock()
-        self._browser: BrowserSession | None = None
-        self._holder_run_id: uuid.UUID | None = None
-        self._profile: BrowserProfileConfig | None = None
-        self._idle_task: asyncio.Task[None] | None = None
+        self._browsers: dict[str, BrowserSession] = {}
+        self._holder_run_ids: dict[str, uuid.UUID] = {}
+        self._run_profiles: dict[uuid.UUID, str] = {}
+        self._profiles: dict[str, BrowserProfileConfig] = {}
+        self._idle_tasks: dict[str, asyncio.Task[None]] = {}
         self._chrome_started_via_compose = False
 
     @property
     def is_attached(self) -> bool:
         """Return whether a Browser Use session is currently attached."""
-        return self._browser is not None
+        return bool(self._browsers)
 
     @property
     def holder_run_id(self) -> uuid.UUID | None:
         """Return the run that currently holds the interactive session, if any."""
-        return self._holder_run_id
+        return next(iter(self._holder_run_ids.values()), None)
 
     async def ensure_chrome(self, profile_name: str | None = None) -> BrowserProfileConfig:
         """Ensure Chromium CDP is reachable for the given profile.
@@ -107,7 +108,7 @@ class BrowserSessionManager:
         if self.settings.compose_control:
             try:
                 await wait_for_cdp(
-                    self.settings.cdp_url,
+                    profile.cdp_url,
                     timeout=min(2.0, self.settings.cdp_ready_timeout_seconds),
                     poll_interval=self.settings.cdp_poll_interval_seconds,
                 )
@@ -122,7 +123,7 @@ class BrowserSessionManager:
                 self._chrome_started_via_compose = True
 
         await wait_for_cdp(
-            self.settings.cdp_url,
+            profile.cdp_url,
             timeout=self.settings.cdp_ready_timeout_seconds,
             poll_interval=self.settings.cdp_poll_interval_seconds,
         )
@@ -151,20 +152,25 @@ class BrowserSessionManager:
             BrowserSessionManagerError: On attach failure.
         """
         async with self._lock:
-            if self._holder_run_id is not None and self._holder_run_id != run_id:
+            profile = get_profile(profile_name, settings=self.settings)
+            holder = self._holder_run_ids.get(profile.id)
+            if not self.settings.profile_ids and self._holder_run_ids:
+                holder = next(iter(self._holder_run_ids.values()))
+            if holder is not None and holder != run_id:
                 raise BrowserSessionBusyError(
-                    f"browser session held by run {self._holder_run_id}; "
+                    f"browser profile {profile.id!r} held by run {holder}; "
                     f"refusing acquire for {run_id}"
                 )
-            self._cancel_idle_timer()
-            if self._holder_run_id == run_id and self._browser is not None:
-                return self._browser
+            self._cancel_idle_timer(profile.id)
+            if holder == run_id and profile.id in self._browsers:
+                return self._browsers[profile.id]
 
-            profile = await self.ensure_chrome(profile_name)
+            profile = await self.ensure_chrome(profile.id)
             browser = await self._attach(profile)
-            self._browser = browser
-            self._holder_run_id = run_id
-            self._profile = profile
+            self._browsers[profile.id] = browser
+            self._holder_run_ids[profile.id] = run_id
+            self._run_profiles[run_id] = profile.id
+            self._profiles[profile.id] = profile
             self._emit_audit(
                 run_id,
                 "browser_started",
@@ -172,7 +178,7 @@ class BrowserSessionManager:
                     "profile": profile.name,
                     "user_data_dir": profile.user_data_dir,
                     "downloads_dir": profile.downloads_dir,
-                    "cdp_url": self.settings.cdp_url,
+                    "cdp_url": profile.cdp_url,
                     "headless": self.settings.headless_documented,
                 },
                 db_session=db_session,
@@ -194,13 +200,19 @@ class BrowserSessionManager:
             shutdown_now: When true, disconnect immediately instead of waiting for idle TTL.
         """
         async with self._lock:
-            if self._holder_run_id != run_id:
+            profile_id = self._run_profiles.get(run_id)
+            if profile_id is None or self._holder_run_ids.get(profile_id) != run_id:
                 return
-            self._holder_run_id = None
+            self._holder_run_ids.pop(profile_id, None)
+            self._run_profiles.pop(run_id, None)
             if shutdown_now or self.settings.idle_ttl_seconds <= 0:
-                await self._disconnect(run_id=run_id, db_session=db_session)
+                await self._disconnect(
+                    profile_id=profile_id,
+                    run_id=run_id,
+                    db_session=db_session,
+                )
             else:
-                self._arm_idle_timer(last_run_id=run_id)
+                self._arm_idle_timer(profile_id=profile_id, last_run_id=run_id)
 
     async def shutdown(self, *, db_session: Session | None = None) -> None:
         """Disconnect Browser Use and cancel idle timers.
@@ -209,10 +221,18 @@ class BrowserSessionManager:
             db_session: Optional SQLAlchemy session for a final audit event.
         """
         async with self._lock:
-            self._cancel_idle_timer()
-            run_id = self._holder_run_id
-            self._holder_run_id = None
-            await self._disconnect(run_id=run_id, db_session=db_session)
+            for profile_id in tuple(self._idle_tasks):
+                self._cancel_idle_timer(profile_id)
+            for profile_id, run_id in tuple(self._holder_run_ids.items()):
+                await self._disconnect(
+                    profile_id=profile_id,
+                    run_id=run_id,
+                    db_session=db_session,
+                )
+            for profile_id in tuple(self._browsers):
+                await self._disconnect(profile_id=profile_id, run_id=None, db_session=db_session)
+            self._holder_run_ids.clear()
+            self._run_profiles.clear()
 
     async def smoke_about_blank(self, *, profile_name: str | None = None) -> dict[str, Any]:
         """Integration helper: attach, open ``about:blank``, observe URL once.
@@ -232,8 +252,8 @@ class BrowserSessionManager:
             return {
                 "url": url,
                 "title": title,
-                "profile": (self._profile.name if self._profile else profile_name),
-                "cdp_url": self.settings.cdp_url,
+                "profile": profile_name or self.settings.default_profile,
+                "cdp_url": get_profile(profile_name, settings=self.settings).cdp_url,
             }
         finally:
             await self.release(run_id, shutdown_now=True)
@@ -250,20 +270,20 @@ class BrowserSessionManager:
         Raises:
             BrowserSessionManagerError: When start fails.
         """
-        if self._browser is not None:
-            return self._browser
+        if profile.id in self._browsers:
+            return self._browsers[profile.id]
 
         try:
             ws_url = await asyncio.to_thread(
                 resolve_cdp_websocket_url,
-                self.settings.cdp_url,
+                profile.cdp_url,
             )
         except Exception as exc:
             raise BrowserSessionManagerError(f"failed to resolve CDP websocket: {exc}") from exc
 
         logger.info(
             "Attaching Browser Use to %s (profile=%s downloads=%s)",
-            self.settings.cdp_url,
+            profile.cdp_url,
             profile.name,
             profile.downloads_dir,
         )
@@ -284,6 +304,7 @@ class BrowserSessionManager:
     async def _disconnect(
         self,
         *,
+        profile_id: str,
         run_id: uuid.UUID | None,
         db_session: Session | None,
     ) -> None:
@@ -293,9 +314,8 @@ class BrowserSessionManager:
             run_id: Optional run id for audit attribution.
             db_session: Optional SQLAlchemy session for audit.
         """
-        browser = self._browser
-        self._browser = None
-        profile = self._profile
+        browser = self._browsers.pop(profile_id, None)
+        profile = self._profiles.pop(profile_id, None)
         if browser is not None:
             try:
                 # stop() keeps Chromium alive so the persistent profile stays intact.
@@ -309,7 +329,7 @@ class BrowserSessionManager:
                     {
                         "profile": profile.name if profile else None,
                         "user_data_dir": profile.user_data_dir if profile else None,
-                        "cdp_url": self.settings.cdp_url,
+                        "cdp_url": profile.cdp_url if profile else None,
                         "mode": "detach",
                     },
                     db_session=db_session,
@@ -327,31 +347,36 @@ class BrowserSessionManager:
             except ComposeControlError:
                 logger.exception("Failed to stop Compose browser service after idle")
 
-    def _arm_idle_timer(self, *, last_run_id: uuid.UUID) -> None:
+    def _arm_idle_timer(self, *, profile_id: str, last_run_id: uuid.UUID) -> None:
         """Schedule idle disconnect after ``idle_ttl_seconds``.
 
         Args:
             last_run_id: Run id used for audit when the timer fires.
         """
-        self._cancel_idle_timer()
+        self._cancel_idle_timer(profile_id)
         ttl = self.settings.idle_ttl_seconds
 
         async def _idle() -> None:
             try:
                 await asyncio.sleep(ttl)
                 async with self._lock:
-                    if self._holder_run_id is not None:
+                    if profile_id in self._holder_run_ids:
                         return
-                    await self._disconnect(run_id=last_run_id, db_session=None)
+                    await self._disconnect(
+                        profile_id=profile_id,
+                        run_id=last_run_id,
+                        db_session=None,
+                    )
             except asyncio.CancelledError:
                 raise
 
-        self._idle_task = asyncio.create_task(_idle(), name="browser-idle-ttl")
+        self._idle_tasks[profile_id] = asyncio.create_task(
+            _idle(), name=f"browser-idle-ttl-{profile_id}"
+        )
 
-    def _cancel_idle_timer(self) -> None:
+    def _cancel_idle_timer(self, profile_id: str) -> None:
         """Cancel a pending idle disconnect task."""
-        task = self._idle_task
-        self._idle_task = None
+        task = self._idle_tasks.pop(profile_id, None)
         if task is not None and not task.done():
             task.cancel()
 

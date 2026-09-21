@@ -29,6 +29,9 @@ services:
       - ARTIFACTS_ROOT=/var/lib/browser-use/artifacts
       # Browser Use session manager (T013): CDP is Compose-internal only.
       - BROWSER_IDLE_TTL_SECONDS=300
+      - BROWSER_PROFILE_NAME=testing
+      - BROWSER_PROFILE_ROOT=/data/chrome-profiles
+      - BROWSER_PROFILE_CDP_URLS=testing=http://browser:9222,personal=http://browser-personal:9222,work=http://browser-work:9222
       # Optional: start/stop the browser service via docker CLI (needs socket mount).
       - BROWSER_COMPOSE_CONTROL=false
       - BROWSER_STOP_ON_IDLE=false
@@ -79,6 +82,12 @@ services:
       browser:
         condition: service_healthy
         required: false
+      browser-personal:
+        condition: service_healthy
+        required: false
+      browser-work:
+        condition: service_healthy
+        required: false
 
   # Internal Chromium/CDP worker + Xvfb/x11vnc. Not on traefik_proxy; CDP/VNC
   # are not host-published. Live HTTP view is the sibling `novnc` service.
@@ -100,6 +109,7 @@ services:
     cpu_shares: 1024
     environment:
       - TZ=Europe/Zurich
+      - CHROME_USER_DATA_DIR=/data/chrome-profiles/testing
       # T022 view-only; interactive takeover is T023.
       - VNC_VIEW_ONLY=${VNC_VIEW_ONLY:-true}
       - CHROMIUM_FLAGS=--disable-gpu --disable-dev-shm-usage
@@ -109,11 +119,29 @@ services:
     tmpfs:
       - /tmp:rw,nosuid,nodev,mode=1777,size=256m
     volumes:
-      - chrome_profile:/data/chrome-profile
+      - chrome_profiles:/data/chrome-profiles
       - browser_downloads:/data/downloads
       - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
     networks:
       - default
+
+  browser-personal:
+    extends:
+      service: browser
+    environment:
+      - CHROME_USER_DATA_DIR=/data/chrome-profiles/personal
+    volumes:
+      - chrome_profiles:/data/chrome-profiles
+      - browser_downloads:/data/downloads
+
+  browser-work:
+    extends:
+      service: browser
+    environment:
+      - CHROME_USER_DATA_DIR=/data/chrome-profiles/work
+    volumes:
+      - chrome_profiles:/data/chrome-profiles
+      - browser_downloads:/data/downloads
 
   # Authelia-gated noVNC HTTP edge. Joins traefik_proxy for /vnc only; bridges
   # to browser:5900 on the internal network. CDP never touches this service.
@@ -204,7 +232,7 @@ networks:
 
 volumes:
   pgdata:
-  chrome_profile:
+  chrome_profiles:
   browser_downloads:
   # Content-addressed audit blobs (screenshots, state, downloads). Controller only;
   # never publish this path via Traefik. See docs/artifacts.md.

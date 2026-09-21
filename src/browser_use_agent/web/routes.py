@@ -20,6 +20,7 @@ from browser_use_agent.agent.worker import RunWorker
 from browser_use_agent.api.deps import CurrentUser, get_session
 from browser_use_agent.api.events_bus import bound_payload
 from browser_use_agent.audit.costs import recent_cost_summary, run_cost
+from browser_use_agent.browser.profiles import get_profile, list_profiles
 from browser_use_agent.db.models import AgentEvent, HumanApproval, Run
 from browser_use_agent.runs.status import TERMINAL_STATUSES, RunStatus
 from browser_use_agent.services import approvals as approval_service
@@ -207,6 +208,7 @@ def home(
         {
             "user": user,
             "runs": [_run_context(run, session) for run in runs],
+            "profiles": list_profiles(settings=request.app.state.settings.browser),
             "error": request.query_params.get("error"),
         },
     )
@@ -238,6 +240,7 @@ async def create_run_form(
     session: Annotated[Session, Depends(get_session)],
     user: CurrentUser,
     goal: Annotated[str, Form()],
+    profile_id: Annotated[str | None, Form()] = None,
 ) -> RedirectResponse:
     """Create a run from the new-run form and start the worker."""
     del user  # Identity enforced by middleware; actor is Authelia Remote-User.
@@ -245,7 +248,11 @@ async def create_run_form(
     if not stripped:
         return _flash_redirect("/", error="Goal is required")
 
-    run = run_service.create_run(session, stripped)
+    try:
+        profile = get_profile(profile_id, settings=request.app.state.settings.browser)
+    except KeyError as exc:
+        return _flash_redirect("/", error=str(exc))
+    run = run_service.create_run(session, stripped, profile_id=profile.id)
     session.commit()
 
     worker = _worker(request)

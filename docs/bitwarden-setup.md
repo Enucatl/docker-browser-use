@@ -2,9 +2,9 @@
 
 The browser image contains the official Bitwarden Chrome Web Store extension,
 registered as a root-owned Chromium external extension. The image pins the
-downloaded CRX version and SHA-256. Chromium installs it into the persistent
-`chrome_profile` volume on first start; rebuilding or recreating the `browser`
-container does not remove the profile.
+downloaded CRX version and SHA-256. Chromium installs it into the selected
+persistent profile in the `chrome_profiles` volume; rebuilding or recreating a
+browser container does not remove the profile.
 
 This is an agent-specific Bitwarden account or vault collection, not an import
 of an operator's desktop profile. Keep the collection least-privileged.
@@ -18,7 +18,7 @@ docker compose up -d browser novnc
 docker compose exec browser curl -sf http://127.0.0.1:9222/json/version
 docker compose exec browser sh -c \
   'test -r /usr/lib/chromium/extensions/external_extensions.json && \
-   find /data/chrome-profile -path "*/Extensions/nngceckbapebfimnlniiiahkandclblb/*" -print -quit | grep -q .'
+   find /data/chrome-profiles/testing -path "*/Extensions/nngceckbapebfimnlniiiahkandclblb/*" -print -quit | grep -q .'
 ```
 
 The first command exercises headless Chromium with the extension registered;
@@ -54,9 +54,9 @@ docker network disconnect bridge "$BROWSER_CONTAINER"
    use the same takeover path whenever the vault locks or a human MFA step is
    required.
 
-The encrypted vault session state remains in `chrome_profile`, which is
-sensitive operational data. Protect that Docker volume and do not sync it with
-a personal desktop profile.
+The encrypted vault session state remains in the selected `chrome_profiles`
+subdirectory, which is sensitive operational data. Protect that Docker volume
+and do not sync it with a personal desktop profile.
 
 ## Limitations
 

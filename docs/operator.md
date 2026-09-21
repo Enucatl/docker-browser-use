@@ -110,7 +110,7 @@ Take-control is the **agent mutex**. Interactive VNC (disable
 | --- | --- |
 | Audit / runs / hash chain | Postgres volume `pgdata` (`agent_events`, …) |
 | Artifact blobs | Volume `artifacts_data` → `/var/lib/browser-use/artifacts` on controller |
-| Chrome profile | Volume `chrome_profile` → `/data/chrome-profile` on browser |
+| Chrome profiles | Volume `chrome_profiles` → `/data/chrome-profiles/{personal,work,testing}` on browser services |
 | Downloads | Volume `browser_downloads` → `/data/downloads` |
 
 Artifact layout: [`artifacts.md`](artifacts.md). Screenshots / checkpoints:

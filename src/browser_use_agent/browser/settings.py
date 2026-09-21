@@ -55,6 +55,9 @@ class BrowserSettings:
         compose_browser_service: Compose service name for Chromium.
         stop_chrome_on_idle: When true with compose control, stop the service on idle.
         headless_documented: Operator note — worker is headless until T022/Xvfb.
+        profile_root: Root directory containing persistent profile subdirectories.
+        profile_ids: Stable profile ids exposed by the registry.
+        profile_cdp_urls: CDP URL overrides keyed by profile id.
     """
 
     cdp_url: str
@@ -69,6 +72,9 @@ class BrowserSettings:
     compose_browser_service: str
     stop_chrome_on_idle: bool
     headless_documented: bool = True
+    profile_root: str | None = None
+    profile_ids: tuple[str, ...] = ()
+    profile_cdp_urls: tuple[tuple[str, str], ...] = ()
 
 
 def load_browser_settings() -> BrowserSettings:
@@ -78,10 +84,38 @@ def load_browser_settings() -> BrowserSettings:
         Immutable browser settings snapshot.
     """
     project_dir = os.environ.get("BROWSER_COMPOSE_PROJECT_DIR", "").strip() or None
+    default_profile = os.environ.get("BROWSER_PROFILE_NAME", "testing").strip() or "testing"
+    configured_root = os.environ.get("BROWSER_PROFILE_ROOT")
+    legacy_user_data_dir = os.environ.get("CHROME_USER_DATA_DIR")
+    profile_root = (
+        configured_root.strip()
+        if configured_root is not None
+        else None
+        if legacy_user_data_dir is not None
+        else "/data/chrome-profiles"
+    )
+    user_data_dir = legacy_user_data_dir or f"{profile_root}/{default_profile}"
+    raw_ids = os.environ.get(
+        "BROWSER_PROFILE_IDS",
+        "default" if default_profile == "default" else "personal,work,testing",
+    )
+    profile_ids = tuple(part.strip() for part in raw_ids.split(",") if part.strip())
+    raw_cdp_urls = os.environ.get(
+        "BROWSER_PROFILE_CDP_URLS",
+        "testing=http://browser:9222,personal=http://browser-personal:9222,"
+        "work=http://browser-work:9222",
+    )
+    profile_cdp_urls = tuple(
+        (profile_id.strip(), url.strip())
+        for entry in raw_cdp_urls.split(",")
+        if "=" in entry
+        for profile_id, url in [entry.split("=", 1)]
+        if profile_id.strip() and url.strip()
+    )
     return BrowserSettings(
         cdp_url=os.environ.get("BROWSER_CDP_URL", "http://browser:9222").rstrip("/"),
-        default_profile=os.environ.get("BROWSER_PROFILE_NAME", "default").strip() or "default",
-        user_data_dir=os.environ.get("CHROME_USER_DATA_DIR", "/data/chrome-profile"),
+        default_profile=default_profile,
+        user_data_dir=user_data_dir,
         downloads_dir=os.environ.get("CHROME_DOWNLOAD_DIR", "/data/downloads"),
         idle_ttl_seconds=_env_float("BROWSER_IDLE_TTL_SECONDS", 300.0),
         cdp_ready_timeout_seconds=_env_float("BROWSER_CDP_READY_TIMEOUT_SECONDS", 60.0),
@@ -91,4 +125,7 @@ def load_browser_settings() -> BrowserSettings:
         compose_browser_service=os.environ.get("BROWSER_COMPOSE_SERVICE", "browser").strip()
         or "browser",
         stop_chrome_on_idle=_env_bool("BROWSER_STOP_ON_IDLE", False),
+        profile_root=profile_root,
+        profile_ids=profile_ids,
+        profile_cdp_urls=profile_cdp_urls,
     )

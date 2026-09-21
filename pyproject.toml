@@ -36,16 +36,6 @@ dependencies = [
     "zstandard>=0.25.0",
 ]
 
-[tool.setuptools-git-versioning]
-enabled = true
-starting_version = "0.1.0"
-template = "{tag}.{ccount}"
-dev_template = "{tag}.{ccount}"
-dirty_template = "{tag}.{ccount}+g{sha}.dirty"
-
-[tool.setuptools.package-data]
-browser_use_agent = ["web/templates/*.html", "web/static/*", "policy/*.toml"]
-
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",

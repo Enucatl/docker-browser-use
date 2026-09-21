@@ -20,6 +20,7 @@ from sqlalchemy import create_engine, select, text
 from browser_use_agent.agent.approvals import (
     ApprovalContext,
     default_needs_approval,
+    load_approval_policy,
     needs_approval,
     wait_for_approval_decision,
 )
@@ -165,6 +166,44 @@ def test_policy_buy_click_needs_approval_benign_does_not() -> None:
         ),
     )
     assert nav_pay is not None
+
+
+def test_policy_rules_are_ordered_and_money_keywords_default_deny(tmp_path) -> None:
+    """The first matching data rule wins, including the default money rule."""
+    policy_path = tmp_path / "policy.toml"
+    policy_path.write_text(
+        """
+version = 1
+
+[[rules]]
+id = "specific"
+reason_code = "test.specific"
+message = "specific"
+action_types = ["CLICK"]
+element_text_regex = "buy"
+
+[[rules]]
+id = "fallback"
+reason_code = "test.fallback"
+message = "fallback"
+action_types = ["CLICK"]
+confidence_below = 0.9
+""",
+        encoding="utf-8",
+    )
+    policy = load_approval_policy(policy_path)
+    action = AgentAction(kind=ActionKind.CLICK, target_index=1, confidence=0.1)
+    context = ApprovalContext(
+        observation=_obs(candidates=[CandidateElement(index=1, name="Buy now")]),
+    )
+    request = policy.evaluate(action, context)
+    assert request is not None
+    assert request.reason_code == "test.specific"
+    assert request.policy_id == "specific"
+
+    money = needs_approval(action, context)
+    assert money is not None
+    assert money.reason_code == "impact.money_keyword"
 
 
 def test_approve_allows_execute_reject_fails_closed() -> None:

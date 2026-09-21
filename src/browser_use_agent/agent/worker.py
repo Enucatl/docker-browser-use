@@ -376,6 +376,7 @@ class RunWorker:
                     metadata={
                         "kind": request.action_kind.value,
                         "target_index": request.target_index,
+                        "reason_code": request.reason_code,
                         "policy_id": request.policy_id,
                         **request.metadata,
                     },

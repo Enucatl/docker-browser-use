@@ -1,4 +1,4 @@
-# Human approval gates (T021)
+# Human approval gates (T021/T028)
 
 High-impact actions park the run in `awaiting_approval` until an authenticated
 operator approves or rejects them. The worker stays alive and waits; the action
@@ -6,17 +6,21 @@ does **not** execute until granted.
 
 ## Policy (Phase 1)
 
-`needs_approval(action, context) -> ApprovalRequest | None` uses a conservative
-heuristic (never auto-approve):
+`needs_approval(action, context) -> ApprovalRequest | None` evaluates the
+ordered, versioned `src/browser_use_agent/policy/approval_policy.toml` pack
+(first match wins; restart reloads it; never auto-approve):
 
-| Trigger | When |
+| Rule | When |
 | --- | --- |
-| Bitwarden kinds | Always (`BITWARDEN_LOGIN` / `IDENTITY` / `CARD`) |
-| `CLICK` | Target label/href matches purchase, payment, delete-account, send-message, … keywords |
-| `NAVIGATE` | URL path/host contains checkout, payment, billing, unsubscribe, … fragments |
-| Other kinds | Allowed without a gate |
+| `always_bitwarden` | Always (`BITWARDEN_LOGIN` / `IDENTITY` / `CARD`) |
+| `money_keyword` | `CLICK` element text matches purchase, payment, transfer, or destructive keywords |
+| `high_impact_url` | `NAVIGATE` URL matches checkout, payment, billing, unsubscribe, or destructive patterns |
+| `low_confidence` | Any action confidence is below `0.5` |
+| No match | Allowed without a gate |
 
-Richer rule packs and UI-facing explanations land in T028.
+Each match produces a stable `reason_code` and configured human `message`.
+The message is shown in the existing approval panel and is retained on the
+approval event/row.
 
 ## API
 

@@ -1,23 +1,25 @@
-"""Human approval gates for high-impact browser actions (T021).
+"""Human approval gates for high-impact browser actions (T021/T028).
 
 Conservative Phase-1 policy: Bitwarden fills always require approval; clicks and
 navigations that look like purchases, payments, account destruction, or other
-irreversible submissions require approval when label/URL heuristics match.
+irreversible submissions require approval when configured rules match.
 Ordinary navigation, scrolling, typing, and benign clicks do not.
 
-Reject and timeout both **fail the run** (fail closed). Replanning after reject
-is deferred to T028. Never auto-approve in production defaults.
+Reject and timeout both **fail the run** (fail closed). Never auto-approve in
+production defaults.
 """
 
 from __future__ import annotations
 
 import asyncio
+import importlib.resources
 import os
 import re
+import tomllib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import urlparse
 
 from browser_use_agent.agent.controls import RunControlSignals, StatusCheck
 from browser_use_agent.policy.actions import (
@@ -32,67 +34,10 @@ DEFAULT_APPROVAL_TIMEOUT_SECONDS = 300.0
 
 ApprovalDecision = Literal["granted", "denied", "timeout", "cancelled"]
 
-# Kinds that always need a human before execute (never auto-approve).
-ALWAYS_APPROVE_KINDS: frozenset[ActionKind] = frozenset(
-    {
-        ActionKind.BITWARDEN_LOGIN,
-        ActionKind.BITWARDEN_IDENTITY,
-        ActionKind.BITWARDEN_CARD,
-    }
-)
-
-# Substrings matched case-insensitively against click labels / hrefs.
-HIGH_IMPACT_CLICK_KEYWORDS: frozenset[str] = frozenset(
-    {
-        "buy",
-        "purchase",
-        "checkout",
-        "pay now",
-        "pay with",
-        "place order",
-        "submit order",
-        "confirm payment",
-        "transfer",
-        "wire",
-        "send money",
-        "delete account",
-        "close account",
-        "remove account",
-        "unsubscribe",
-        "cancel subscription",
-        "destroy",
-        "permanently delete",
-        "confirm delete",
-        "send message",
-        "send email",
-        "post comment",
-        "publish",
-        "authorize",
-        "approve payment",
-    }
-)
-
-# Path/host fragments that make NAVIGATE high-impact.
-HIGH_IMPACT_URL_FRAGMENTS: frozenset[str] = frozenset(
-    {
-        "checkout",
-        "payment",
-        "billing",
-        "cart/checkout",
-        "pay/",
-        "/pay?",
-        "unsubscribe",
-        "delete-account",
-        "close-account",
-        "transfer",
-        "wire-transfer",
-    }
-)
-
 
 @dataclass(frozen=True, slots=True)
 class ApprovalContext:
-    """Optional surroundings for the approval heuristic.
+    """Optional surroundings for the approval policy.
 
     Attributes:
         observation: Current browser observation (for target labels).
@@ -111,6 +56,7 @@ class ApprovalRequest:
 
     Attributes:
         reason: Operator-visible explanation for the UI.
+        reason_code: Stable machine-readable policy reason.
         action_kind: Action that is blocked.
         target_index: Snapshot-local element index when targeted.
         policy_id: Stable id of the heuristic that matched.
@@ -122,6 +68,7 @@ class ApprovalRequest:
     target_index: int | None = None
     policy_id: str = "default_v1"
     metadata: dict[str, Any] = field(default_factory=dict)
+    reason_code: str = "approval.required"
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,6 +80,143 @@ class ApprovalSettings:
     """
 
     timeout_seconds: float = DEFAULT_APPROVAL_TIMEOUT_SECONDS
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovalRule:
+    """One ordered, data-driven approval rule."""
+
+    rule_id: str
+    reason_code: str
+    message: str
+    action_types: frozenset[str] = frozenset()
+    url_regex: str | None = None
+    element_text_regex: str | None = None
+    confidence_below: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovalPolicy:
+    """Pure first-match evaluator for approval rules."""
+
+    version: int
+    rules: tuple[ApprovalRule, ...]
+
+    def evaluate(
+        self,
+        action: AgentAction,
+        context: ApprovalContext | None = None,
+    ) -> ApprovalRequest | None:
+        """Return the first matching approval request, if any.
+
+        Args:
+            action: Proposed browser action.
+            context: Current observation and operator goal.
+
+        Returns:
+            The configured approval request, or ``None`` when allowed.
+        """
+        ctx = context or ApprovalContext()
+        candidate = None
+        if ctx.observation is not None and action.target_index is not None:
+            candidate = ctx.observation.candidate_by_index(action.target_index)
+        element_text = _element_text(candidate, action)
+        url = action.params.url or (candidate.href if candidate is not None else None)
+        url = url or ctx.url or (ctx.observation.url if ctx.observation is not None else None)
+
+        for rule in self.rules:
+            if rule.action_types and action.kind.value not in rule.action_types:
+                continue
+            if rule.url_regex and (not url or re.search(rule.url_regex, url) is None):
+                continue
+            if rule.element_text_regex and (
+                re.search(rule.element_text_regex, element_text) is None
+            ):
+                continue
+            if rule.confidence_below is not None and (
+                action.confidence is None or action.confidence >= rule.confidence_below
+            ):
+                continue
+
+            reason = rule.message.format(
+                action_kind=action.kind.value,
+                confidence=action.confidence if action.confidence is not None else "unknown",
+                element_text=element_text,
+                url=url or "unknown URL",
+            )
+            metadata: dict[str, Any] = {"kind": action.kind.value}
+            if rule.url_regex and url:
+                metadata["url"] = url
+            return ApprovalRequest(
+                reason=reason,
+                action_kind=action.kind,
+                reason_code=rule.reason_code,
+                target_index=action.target_index,
+                policy_id=rule.rule_id,
+                metadata=metadata,
+            )
+        return None
+
+
+def _element_text(candidate: CandidateElement | None, action: AgentAction) -> str:
+    """Build non-secret text used by element rules."""
+    values = []
+    if candidate is not None:
+        values.extend((candidate.name, candidate.role, candidate.href, candidate.tag))
+    values.append(action.rationale)
+    return _normalize_text(" ".join(value for value in values if value))
+
+
+def load_approval_policy(path: str | Path | None = None) -> ApprovalPolicy:
+    """Load the ordered approval policy from TOML.
+
+    Args:
+        path: Optional policy path, primarily useful for tests.
+
+    Returns:
+        Parsed immutable policy.
+
+    Raises:
+        ValueError: If the policy shape or regular expressions are invalid.
+    """
+    if path is None:
+        resource = importlib.resources.files("browser_use_agent.policy").joinpath(
+            "approval_policy.toml"
+        )
+        raw = tomllib.loads(resource.read_text(encoding="utf-8"))
+    else:
+        raw = tomllib.loads(Path(path).read_text(encoding="utf-8"))
+    try:
+        version = int(raw["version"])
+        rules = tuple(
+            ApprovalRule(
+                rule_id=str(item["id"]),
+                reason_code=str(item["reason_code"]),
+                message=str(item["message"]),
+                action_types=frozenset(str(kind) for kind in item.get("action_types", [])),
+                url_regex=str(item["url_regex"]) if "url_regex" in item else None,
+                element_text_regex=(
+                    str(item["element_text_regex"]) if "element_text_regex" in item else None
+                ),
+                confidence_below=(
+                    float(item["confidence_below"]) if "confidence_below" in item else None
+                ),
+            )
+            for item in raw["rules"]
+        )
+        for rule in rules:
+            if rule.url_regex:
+                re.compile(rule.url_regex)
+            if rule.element_text_regex:
+                re.compile(rule.element_text_regex)
+            if not rule.rule_id or not rule.reason_code or not rule.message:
+                raise ValueError("approval rules require id, reason_code, and message")
+    except (KeyError, TypeError, ValueError, re.error) as exc:
+        raise ValueError("invalid approval policy") from exc
+    return ApprovalPolicy(version=version, rules=rules)
+
+
+DEFAULT_APPROVAL_POLICY = load_approval_policy()
 
 
 def load_approval_settings() -> ApprovalSettings:
@@ -170,76 +254,14 @@ def _normalize_text(value: str | None) -> str:
     return re.sub(r"\s+", " ", value.strip().lower())
 
 
-def _click_haystack(candidate: CandidateElement | None, action: AgentAction) -> str:
-    """Build a searchable string from the click target and action rationale.
-
-    Args:
-        candidate: Matched observation candidate, if any.
-        action: Candidate action.
-
-    Returns:
-        Lowercased haystack for keyword search.
-    """
-    parts: list[str] = []
-    if candidate is not None:
-        parts.extend(
-            [
-                candidate.name or "",
-                candidate.role or "",
-                candidate.href or "",
-                candidate.tag or "",
-            ]
-        )
-    if action.rationale:
-        parts.append(action.rationale)
-    return _normalize_text(" ".join(parts))
-
-
-def _url_looks_high_impact(url: str | None) -> bool:
-    """Return whether a navigate URL matches payment/destructive fragments.
-
-    Args:
-        url: Absolute or relative URL.
-
-    Returns:
-        ``True`` when a known high-impact fragment appears.
-    """
-    if not url:
-        return False
-    lowered = url.strip().lower()
-    parsed = urlparse(lowered)
-    haystack = f"{parsed.netloc}{parsed.path}?{parsed.query}"
-    return any(
-        fragment in haystack or fragment in lowered for fragment in HIGH_IMPACT_URL_FRAGMENTS
-    )
-
-
-def _click_looks_high_impact(haystack: str) -> str | None:
-    """Return the matched keyword when a click label looks high-impact.
-
-    Args:
-        haystack: Normalized label/href text.
-
-    Returns:
-        Matched keyword, or ``None``.
-    """
-    if not haystack:
-        return None
-    for keyword in HIGH_IMPACT_CLICK_KEYWORDS:
-        if keyword in haystack:
-            return keyword
-    return None
-
-
 def needs_approval(
     action: AgentAction,
     context: ApprovalContext | None = None,
 ) -> ApprovalRequest | None:
     """Decide whether ``action`` must wait for a human approve/reject.
 
-    Conservative default: Bitwarden always; click/navigate only when heuristics
-    match. Never returns an auto-approve signal — absence of a request means
-    the action may proceed.
+    The packaged policy is ordered and first-match wins. Never returns an
+    auto-approve signal — absence of a request means the action may proceed.
 
     Args:
         action: Proposed agent action.
@@ -248,49 +270,7 @@ def needs_approval(
     Returns:
         :class:`ApprovalRequest` when blocked, otherwise ``None``.
     """
-    ctx = context or ApprovalContext()
-
-    if action.kind in ALWAYS_APPROVE_KINDS:
-        return ApprovalRequest(
-            reason=f"{action.kind.value} requires human approval before execution.",
-            action_kind=action.kind,
-            target_index=action.target_index,
-            policy_id="always_bitwarden",
-            metadata={"kind": action.kind.value},
-        )
-
-    if action.kind == ActionKind.NAVIGATE:
-        url = action.params.url or ctx.url
-        if ctx.observation is not None and not url:
-            url = ctx.observation.url or None
-        if _url_looks_high_impact(url):
-            return ApprovalRequest(
-                reason=f"Navigation to high-impact URL requires approval: {url}",
-                action_kind=action.kind,
-                target_index=None,
-                policy_id="navigate_url_heuristic",
-                metadata={"url": url},
-            )
-        return None
-
-    if action.kind == ActionKind.CLICK:
-        candidate: CandidateElement | None = None
-        if ctx.observation is not None and action.target_index is not None:
-            candidate = ctx.observation.candidate_by_index(action.target_index)
-        haystack = _click_haystack(candidate, action)
-        matched = _click_looks_high_impact(haystack)
-        if matched is not None:
-            label = (candidate.name if candidate is not None else None) or haystack[:80]
-            return ApprovalRequest(
-                reason=f"Click looks high-impact ({matched!r}): {label}",
-                action_kind=action.kind,
-                target_index=action.target_index,
-                policy_id="click_keyword_heuristic",
-                metadata={"matched_keyword": matched, "label": label},
-            )
-        return None
-
-    return None
+    return DEFAULT_APPROVAL_POLICY.evaluate(action, context)
 
 
 def default_needs_approval(

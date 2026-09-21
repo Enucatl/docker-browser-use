@@ -447,6 +447,7 @@ class AgentLoop:
                     "target_index": action.target_index,
                     "confidence": action.confidence,
                     "reason": approval_req.reason,
+                    "reason_code": approval_req.reason_code,
                     "policy_id": approval_req.policy_id,
                     "timeout_seconds": self.approval_timeout_seconds,
                     **approval_req.metadata,

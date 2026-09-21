@@ -1,0 +1,27 @@
+version = 1
+
+[[rules]]
+id = "always_bitwarden"
+reason_code = "secrets.bitwarden"
+message = "{action_kind} requires human approval before execution."
+action_types = ["BITWARDEN_LOGIN", "BITWARDEN_IDENTITY", "BITWARDEN_CARD"]
+
+[[rules]]
+id = "money_keyword"
+reason_code = "impact.money_keyword"
+message = "This action may submit a purchase, payment, transfer, or destructive request: {element_text}"
+action_types = ["CLICK"]
+element_text_regex = '(?i)\b(?:buy|purchase|checkout|pay now|pay with|place order|submit order|confirm payment|transfer|wire|send money|delete account|close account|remove account|unsubscribe|cancel subscription|destroy|permanently delete|confirm delete|send message|send email|post comment|publish|authorize|approve payment)\b'
+
+[[rules]]
+id = "high_impact_url"
+reason_code = "impact.high_impact_url"
+message = "Navigation to a high-impact URL requires approval: {url}"
+action_types = ["NAVIGATE"]
+url_regex = '(?i)(checkout|payment|billing|cart/checkout|pay/|/pay\?|unsubscribe|delete-account|close-account|transfer|wire-transfer)'
+
+[[rules]]
+id = "low_confidence"
+reason_code = "confidence.below_threshold"
+message = "The selected action has low confidence ({confidence}) and requires approval."
+confidence_below = 0.5

@@ -140,6 +140,7 @@ def _run_context(run: Run, *, pending: HumanApproval | None = None) -> dict[str,
             {
                 "id": str(pending.id),
                 "reason": pending.reason,
+                "reason_code": (pending.metadata_ or {}).get("reason_code"),
                 "metadata": dict(pending.metadata_ or {}),
                 "created_at": _iso(pending.created_at),
             }

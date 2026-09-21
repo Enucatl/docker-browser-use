@@ -68,7 +68,7 @@ Status values: `todo` · `ready` · `blocked` · `in_progress` · `done` · `can
 
 | ID | Title | Depends | Status | Guide |
 | --- | --- | --- | --- | --- |
-| T026 | Install Bitwarden into the persistent Chrome profile | T013 | ready | [tasks/T026.md](tasks/T026.md) |
+| T026 | Install Bitwarden into the persistent Chrome profile | T013 | done | [tasks/T026.md](tasks/T026.md) |
 | T027 | Explicit Bitwarden actions (`LOGIN` / `IDENTITY` / `CARD`) | T015, T026, T008 | todo | [tasks/T027.md](tasks/T027.md) |
 | T028 | Richer approval policy engine (rules + UI reasons) | T021 | ready | [tasks/T028.md](tasks/T028.md) |
 | T029 | Cost entries and simple cost dashboard API/UI | T017, T024 | ready | [tasks/T029.md](tasks/T029.md) |

@@ -1,7 +1,8 @@
 # Browser runtime (Chromium / CDP)
 
 Operator notes for the internal `browser` Compose service (T004 / T013 / T022).
-Bitwarden lands in T026.
+Bitwarden is installed by the browser image; vault setup is documented in
+[`bitwarden-setup.md`](bitwarden-setup.md).
 
 ## Role
 
@@ -16,10 +17,12 @@ Bitwarden lands in T026.
 
 | Volume | Mount | Purpose |
 | --- | --- | --- |
-| `chrome_profile` | `/data/chrome-profile` | Persistent agent Chrome profile (cookies, extensions later) |
+| `chrome_profile` | `/data/chrome-profile` | Persistent agent Chrome profile (cookies, Bitwarden extension state) |
 | `browser_downloads` | `/data/downloads` | Downloads; share with controller when the session manager needs it |
 
-Bitwarden will install into `chrome_profile` in T026 — leave the volume empty for now.
+The image registers Bitwarden as an external Chromium extension. On first Chrome
+start, Chromium copies it into the profile volume; do not replace this volume
+with an operator's personal browser profile.
 
 ## Hardening choice
 
@@ -144,5 +147,5 @@ docker compose exec browser curl -sf http://127.0.0.1:9222/json/version
 ## Related
 
 - **Live view (Xvfb + noVNC)** — [`live-view.md`](live-view.md)
-- **Bitwarden** extension in the profile volume (T026)
+- **Bitwarden** extension setup and unlock — [`bitwarden-setup.md`](bitwarden-setup.md)
 - Multi-profile Personal / Work / Testing (T031)

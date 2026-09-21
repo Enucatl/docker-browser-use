@@ -3,6 +3,9 @@
 # Raw VNC (5900) stays Compose-internal; Authelia-gated noVNC is a sibling service.
 FROM debian:bookworm-slim
 
+ARG BITWARDEN_EXTENSION_VERSION=2026.8.0
+ARG BITWARDEN_EXTENSION_SHA256=d1a5942d9c234d03382da99279932055064caae7a32cc9b157940c863165d59f
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -17,6 +20,19 @@ RUN apt-get update \
         x11vnc \
         xvfb \
     && rm -rf /var/lib/apt/lists/*
+
+# Install the official Bitwarden Web Store CRX as a Chromium external extension.
+# The pinned digest makes image rebuilds fail instead of silently changing it.
+RUN mkdir -p /opt/bitwarden /usr/lib/chromium/extensions \
+    && curl -fsSL \
+        'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=150.0.7871.100&acceptformat=crx3&x=id%3Dnngceckbapebfimnlniiiahkandclblb%26uc' \
+        -o /opt/bitwarden/bitwarden.crx \
+    && echo "${BITWARDEN_EXTENSION_SHA256}  /opt/bitwarden/bitwarden.crx" | sha256sum -c - \
+    && printf '{"nngceckbapebfimnlniiiahkandclblb":{"external_crx":"/opt/bitwarden/bitwarden.crx","external_version":"%s"}}\n' \
+        "${BITWARDEN_EXTENSION_VERSION}" \
+        > /usr/lib/chromium/extensions/external_extensions.json \
+    && chmod 644 /opt/bitwarden/bitwarden.crx \
+        /usr/lib/chromium/extensions/external_extensions.json
 
 # Non-root UID matches the chrome_profile volume owner used in compose.
 RUN groupadd --system --gid 1000 browser \

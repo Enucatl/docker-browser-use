@@ -33,7 +33,7 @@ services:
       - BROWSER_COMPOSE_CONTROL=false
       - BROWSER_STOP_ON_IDLE=false
       # Decision / text-fill providers (keys via Docker secrets; never env literals).
-      - JEV_BASE_URL=${JEV_BASE_URL:-https://jevtypesafeai.com/api}
+      - JEV_BASE_URL=${JEV_BASE_URL:-https://api.typesafe.ai}
       - JEV_MODEL=${JEV_MODEL:-jev-latest}
       - JEV_TIMEOUT_SECONDS=${JEV_TIMEOUT_SECONDS:-30}
       - JEV_API_KEY_FILE=/run/secrets/jev_api_key

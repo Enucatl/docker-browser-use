@@ -38,6 +38,10 @@ docker compose config
 docker compose up -d
 ```
 
+Put the official TypeSafe API key from `console.typesafe.ai` in
+`secrets/jev_api_key` as a single line. The controller calls
+`https://api.typesafe.ai/v1/systemone` with a Bearer header.
+
 Public URL: `https://browser-use.${DOCKER_DOMAIN}` behind Traefik with
 `authelia@docker,secured@file`. Authelia’s wildcard `*.docker.home.arpa` rule
 already allows `group:admins`. Auth details: [`docs/auth.md`](docs/auth.md).

@@ -2,7 +2,7 @@
 
 Assumed wire shapes (System One / hosted Jev Decision API)
 ----------------------------------------------------------
-Request ``POST {base_url}/v1/decide`` (or TypeSafe ``/v1/systemone``)::
+Request ``POST {base_url}/v1/systemone``::
 
     {
       "model": "jev-latest",
@@ -48,7 +48,7 @@ Response::
       }
     }
 
-Auth: ``Authorization: Bearer jv_live_…`` from ``JEV_API_KEY_FILE``.
+Auth: ``Authorization: Bearer <API_KEY>`` from ``JEV_API_KEY_FILE``.
 This module isolates the HTTP boundary so the real endpoint can be swapped
 without changing the adapter. Production credentials beyond config hooks are
 out of scope for T014; use :class:`FakeJevClient` in tests.
@@ -209,12 +209,12 @@ class JevClientSettings:
 
     Attributes:
         base_url: API root without trailing slash.
-        api_key: Bearer token (``jv_live_…``); never log this value.
+        api_key: Bearer token; never log this value.
         model: Default model pin.
         timeout_seconds: HTTP timeout.
     """
 
-    base_url: str = "https://jevtypesafeai.com/api"
+    base_url: str = "https://api.typesafe.ai"
     api_key: str | None = None
     model: str = "jev-latest"
     timeout_seconds: float = 30.0
@@ -235,7 +235,7 @@ def load_jev_client_settings() -> JevClientSettings:
 
     timeout_raw = os.environ.get("JEV_TIMEOUT_SECONDS", "30").strip()
     return JevClientSettings(
-        base_url=os.environ.get("JEV_BASE_URL", "https://jevtypesafeai.com/api").rstrip("/"),
+        base_url=os.environ.get("JEV_BASE_URL", "https://api.typesafe.ai").rstrip("/"),
         api_key=api_key,
         model=os.environ.get("JEV_MODEL", "jev-latest").strip() or "jev-latest",
         timeout_seconds=float(timeout_raw),
@@ -464,7 +464,7 @@ class HttpJevClient(JevClient):
         if not payload.get("model"):
             payload["model"] = self.settings.model
 
-        url = f"{self.settings.base_url}/v1/decide"
+        url = f"{self.settings.base_url}/v1/systemone"
         try:
             response = niquests.post(
                 url,

@@ -52,4 +52,24 @@ result = store.put(
 blob = store.get(result.storage_key)
 ```
 
+## Retention and state diffs (T033)
+
+Retention is disabled unless a period is configured. Plan or apply it with
+`uv run python -m browser_use_agent.artifacts.retention`; `--apply` is required
+for mutation. `SCREENSHOT_RETENTION_DAYS` and `CHECKPOINT_RETENTION_DAYS` set
+the age threshold. `SCREENSHOT_RETENTION_KEEP_EVERY` and
+`CHECKPOINT_RETENTION_KEEP_EVERY` control old-artifact downsampling. Boundary
+artifacts (`first`, `approval`, `error`, `browser_error`, and `destructive`)
+are retained.
+
+The job never deletes or updates `agent_events`. It soft-deletes metadata by
+adding `retention_deleted_at` to the artifact row's JSON metadata, preserving
+FK-safe audit metadata. A content-addressed blob is unlinked only after every
+metadata row sharing its `storage_key` is marked; immutable event payloads may
+therefore retain a reference whose blob is intentionally unavailable.
+
+State diffs are off by default. Set `STATE_DIFFS_ENABLED=true` and optionally
+`STATE_DIFF_FULL_EVERY` to emit JSON Patch-like object diffs with periodic full
+baselines using `browser_use_agent.artifacts.state_diff`.
+
 MinIO/S3 backend is T034 (`ARTIFACT_STORE=fs|s3`).

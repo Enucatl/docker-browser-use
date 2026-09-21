@@ -80,7 +80,7 @@ Status values: `todo` · `ready` · `blocked` · `in_progress` · `done` · `can
 | ID | Title | Depends | Status | Guide |
 | --- | --- | --- | --- | --- |
 | T032 | Offline Jev evaluation harness from recorded states | T014, T018 | done | [tasks/T032.md](tasks/T032.md) |
-| T033 | Artifact retention policy and optional state diffs | T018, T019 | ready | [tasks/T033.md](tasks/T033.md) |
+| T033 | Artifact retention policy and optional state diffs | T018, T019 | done | [tasks/T033.md](tasks/T033.md) |
 | T034 | Optional MinIO backend for artifact storage | T007 | ready | [tasks/T034.md](tasks/T034.md) |
 | T035 | Periodic signed audit checkpoints | T009 | ready | [tasks/T035.md](tasks/T035.md) |
 

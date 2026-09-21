@@ -287,9 +287,10 @@ class BrowserUsePort:
             ActionKind.BITWARDEN_IDENTITY,
             ActionKind.BITWARDEN_CARD,
         }:
-            return ActionExecutionResult(
-                ok=False,
-                error=f"{action.kind.value} is not implemented until T027",
+            from browser_use_agent.browser.bitwarden_actions import BitwardenActionExecutor
+
+            return await BitwardenActionExecutor(self.session, tools=self._get_tools()).execute(
+                action
             )
 
         # Re-resolve targeted indices against the current selector map.

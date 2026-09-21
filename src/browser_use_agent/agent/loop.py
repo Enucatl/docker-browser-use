@@ -33,6 +33,10 @@ from browser_use_agent.audit.browser_actions import BrowserActionWriter
 from browser_use_agent.audit.model_calls import ModelCallWriter
 from browser_use_agent.audit.screenshots import is_destructive_action
 from browser_use_agent.audit.writer import AuditAppend
+from browser_use_agent.browser.bitwarden_actions import (
+    bitwarden_audit_payload,
+    is_bitwarden_action,
+)
 from browser_use_agent.policy.actions import (
     ActionKind,
     AgentAction,
@@ -547,6 +551,15 @@ class AgentLoop:
 
         # --- execute ---
         target_meta = _target_forensics(observation, action)
+        if is_bitwarden_action(action):
+            self.audit.append(
+                self.run_id,
+                "bitwarden_fill_requested",
+                bitwarden_audit_payload(action, result="requested"),
+                actor="agent",
+                step_id=step_id,
+                url=observation.url or None,
+            )
         requested_event = self.audit.append(
             self.run_id,
             "action_requested",
@@ -578,6 +591,20 @@ class AgentLoop:
         page_changed = _page_changed(observation, result.metadata)
 
         if result.ok:
+            if is_bitwarden_action(action):
+                self.audit.append(
+                    self.run_id,
+                    "bitwarden_fill_completed",
+                    bitwarden_audit_payload(
+                        action,
+                        result="completed",
+                        executor=result.metadata,
+                    ),
+                    actor="agent",
+                    step_id=step_id,
+                    url=observation.url or None,
+                    duration_ms=exec_ms,
+                )
             completed_event = self.audit.append(
                 self.run_id,
                 "action_completed",
@@ -612,6 +639,20 @@ class AgentLoop:
                     force_reason="destructive",
                 )
         else:
+            if is_bitwarden_action(action):
+                self.audit.append(
+                    self.run_id,
+                    "bitwarden_fill_failed",
+                    bitwarden_audit_payload(
+                        action,
+                        result="failed",
+                        error_code=result.metadata.get("result", "executor_failed"),
+                    ),
+                    actor="agent",
+                    step_id=step_id,
+                    url=observation.url or None,
+                    duration_ms=exec_ms,
+                )
             await self._maybe_checkpoint(step_id, observation, force_reason="error")
             await self._maybe_screenshot(step_id, observation, force_reason="error")
             failed_event = self.audit.append(

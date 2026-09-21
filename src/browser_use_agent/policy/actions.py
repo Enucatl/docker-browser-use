@@ -12,7 +12,7 @@ observation). The adapter and executor must:
 3. Never put passwords, CVVs, cookies, or raw form values into Jev criteria
    labels — only role, tag, accessible name, and similar non-secret hints.
 
-Action space is deliberately small. Bitwarden kinds are stubs until T027.
+Action space is deliberately small. Bitwarden kinds use the extension executor.
 """
 
 from __future__ import annotations
@@ -204,6 +204,8 @@ class ActionParams(BaseModel):
         direction: Scroll direction for ``SCROLL``.
         message: Completion note for ``DONE``.
         amount: Optional scroll magnitude hint.
+        item_name: Optional non-secret Bitwarden item-name selector.
+        item_id: Optional non-secret Bitwarden item-id selector.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -213,6 +215,8 @@ class ActionParams(BaseModel):
     direction: ScrollDirection | None = None
     message: str | None = None
     amount: int | None = Field(default=None, ge=0)
+    item_name: str | None = None
+    item_id: str | None = None
 
 
 class AgentAction(BaseModel):

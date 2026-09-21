@@ -60,6 +60,13 @@ a personal desktop profile.
 
 ## Limitations
 
+T027's login action sends Bitwarden's documented `Ctrl+Shift+L` shortcut to the
+active page. Bitwarden chooses the current site's matching/last-used login, so
+the controller never receives vault fields. Identity and card actions remain
+fail-closed until popup automation has a stable item-selection API; popup DOM
+and focus behavior are extension-version-sensitive and can otherwise fill the
+wrong tab. Use human takeover for those cases.
+
 - TOTP retrieval or autofill is an extension/UI interaction and may require
   human takeover; T027 owns any explicit agent action for it.
 - Passkeys/WebAuthn depend on the browser and authenticator/device. They are not

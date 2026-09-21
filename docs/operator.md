@@ -140,7 +140,8 @@ HTTP noVNC edge (`/vnc`) and the controller UI/API are on `traefik_proxy`.
 
 1. **Real Jev credentials** — Without `JEV_API_KEY_FILE`, decisions are fake
    (`DONE` immediately). Live action selection needs a real key and reachable API.
-2. **Bitwarden** — Not installed yet (T026/T027). Login/identity/card fills are stubs.
+2. **Bitwarden** — Installed in the persistent profile (T026). Login autofill uses
+   the extension shortcut; identity/card fills remain fail-closed (T027).
 3. **Internal network egress** — Compose `default` is `internal: true`. The
    `browser` service has no internet path, so Chromium cannot load public sites
    until an intentional egress design lands. The controller can still reach

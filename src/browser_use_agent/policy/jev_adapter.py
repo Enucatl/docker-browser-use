@@ -51,9 +51,9 @@ OPERATION_CRITERIA: dict[str, str] = {
     ActionKind.GO_BACK.value: "Navigate back in browser history.",
     ActionKind.NAVIGATE.value: "Open a suggested URL.",
     ActionKind.DONE.value: "The goal is complete; stop the run.",
-    ActionKind.BITWARDEN_LOGIN.value: "Fill login via Bitwarden (stub).",
-    ActionKind.BITWARDEN_IDENTITY.value: "Fill identity via Bitwarden (stub).",
-    ActionKind.BITWARDEN_CARD.value: "Fill card via Bitwarden (stub).",
+    ActionKind.BITWARDEN_LOGIN.value: "Fill the current site's login via Bitwarden.",
+    ActionKind.BITWARDEN_IDENTITY.value: "Fill identity fields via Bitwarden.",
+    ActionKind.BITWARDEN_CARD.value: "Fill card fields via Bitwarden.",
 }
 
 

@@ -73,7 +73,7 @@ volume `artifacts_data` at `/var/lib/browser-use/artifacts` on the controller â€
 ### Known limitations (Phase 1)
 
 - **Jev:** without `JEV_API_KEY_FILE`, FakeJev returns `DONE` (UI/audit smoke only)
-- **Bitwarden:** extension installation and human unlock: [`docs/bitwarden-setup.md`](docs/bitwarden-setup.md); Jev actions are T027
+- **Bitwarden:** extension installation and human unlock: [`docs/bitwarden-setup.md`](docs/bitwarden-setup.md); login autofill uses the extension shortcut, while identity/card popup selection remains fail-closed
 - **Browser egress:** Compose `default` is `internal: true` â€” Chromium cannot load public sites yet
 - **`/vnc`:** confirm manually behind Authelia after deploy
 

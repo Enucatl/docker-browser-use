@@ -9,7 +9,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from browser_use_agent.artifacts.store import FilesystemArtifactStore
+from browser_use_agent.artifacts.store import ArtifactStore
 from browser_use_agent.audit.costs import estimate_model_cost, record_cost_entry
 from browser_use_agent.audit.payloads import (
     DEFAULT_INLINE_LIMIT_BYTES,
@@ -35,7 +35,7 @@ class ModelCallWriter:
         self,
         session: Session,
         *,
-        artifact_store: FilesystemArtifactStore | None = None,
+        artifact_store: ArtifactStore | None = None,
         inline_limit_bytes: int = DEFAULT_INLINE_LIMIT_BYTES,
     ) -> None:
         """Bind the writer to a session and optional artifact store.

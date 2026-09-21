@@ -32,6 +32,28 @@ manager ingests files into the artifact store when needed.
 
 Override the root with `ARTIFACTS_ROOT` if mounting elsewhere.
 
+## Optional MinIO backend
+
+Filesystem storage is the default. To use the internal MinIO service, create
+the `minio_access_key` and `minio_secret_key` Docker secret files, then start
+the profile with `ARTIFACT_STORE=s3`:
+
+```bash
+ARTIFACT_STORE=s3 docker compose \
+  -f docker-compose.yml -f docker-compose.minio.yml \
+  --profile minio up -d
+```
+
+The controller uses `http://minio:9000` and creates the configured bucket on
+startup. Override `ARTIFACT_S3_ENDPOINT_URL`, `ARTIFACT_S3_BUCKET`,
+`ARTIFACT_S3_PREFIX`, or `ARTIFACT_S3_SSE` as needed. MinIO has no published
+ports and is not attached to `traefik_proxy`.
+
+Migration is best-effort: copy each filesystem object at
+`<ARTIFACTS_ROOT>/<storage_key>` to the same logical key in the configured S3
+bucket, then switch `ARTIFACT_STORE` to `s3`; PostgreSQL metadata keys remain
+unchanged.
+
 ## API
 
 ```python

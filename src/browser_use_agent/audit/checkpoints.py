@@ -19,7 +19,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from browser_use_agent.artifacts.store import FilesystemArtifactStore
+from browser_use_agent.artifacts.store import ArtifactStore
 from browser_use_agent.artifacts.zstd import zstd_decode_json, zstd_encode_json
 from browser_use_agent.audit.writer import AuditAppend
 from browser_use_agent.policy.actions import BrowserObservation
@@ -411,7 +411,7 @@ class CheckpointWriter:
     def __init__(
         self,
         audit: AuditAppend,
-        store: FilesystemArtifactStore,
+        store: ArtifactStore,
         *,
         session: Session | None = None,
         settings: CheckpointSettings | None = None,

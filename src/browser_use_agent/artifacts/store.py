@@ -8,7 +8,7 @@ import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, Protocol
 
 from sqlalchemy.orm import Session
 
@@ -23,6 +23,53 @@ _HASH_CHUNK = 1024 * 1024
 
 class ArtifactNotFoundError(KeyError):
     """Raised when a storage key or digest is missing from the store."""
+
+
+def storage_key_for(sha256: str) -> str:
+    """Return the relative key for a validated hex SHA-256 digest."""
+    digest = sha256.lower()
+    if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+        raise ValueError(f"invalid sha256 digest: {sha256!r}")
+    return f"{digest[:2]}/{digest[2:4]}/{digest}"
+
+
+class ArtifactStore(Protocol):
+    """Common interface for content-addressed artifact backends."""
+
+    def exists(self, storage_key: str) -> bool:
+        """Return whether a blob exists for ``storage_key``."""
+
+    def get(self, storage_key: str) -> bytes:
+        """Read a blob, raising :class:`ArtifactNotFoundError` when absent."""
+
+    def put(
+        self,
+        data: bytes,
+        *,
+        media_type: str,
+        kind: str,
+        run_id: uuid.UUID | None = None,
+        event_id: uuid.UUID | None = None,
+        metadata: dict[str, object] | None = None,
+        session: Session | None = None,
+    ) -> PutResult:
+        """Store bytes and return their content-addressed result."""
+
+    def put_stream(
+        self,
+        stream: BinaryIO,
+        *,
+        media_type: str,
+        kind: str,
+        run_id: uuid.UUID | None = None,
+        event_id: uuid.UUID | None = None,
+        metadata: dict[str, object] | None = None,
+        session: Session | None = None,
+    ) -> PutResult:
+        """Store a binary stream and return its content-addressed result."""
+
+    def delete(self, storage_key: str) -> bool:
+        """Delete a blob and return whether it existed."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,10 +141,7 @@ class FilesystemArtifactStore:
         Raises:
             ValueError: If ``sha256`` is not a 64-character hex string.
         """
-        digest = sha256.lower()
-        if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
-            raise ValueError(f"invalid sha256 digest: {sha256!r}")
-        return f"{digest[:2]}/{digest[2:4]}/{digest}"
+        return storage_key_for(sha256)
 
     def path_for(self, storage_key: str) -> Path:
         """Resolve an absolute path for a storage key.
@@ -138,6 +182,21 @@ class FilesystemArtifactStore:
             raise ArtifactNotFoundError(storage_key)
         return path.read_bytes()
 
+    def delete(self, storage_key: str) -> bool:
+        """Delete a blob when present.
+
+        Args:
+            storage_key: Relative key under the store root.
+
+        Returns:
+            True when a blob was removed.
+        """
+        path = self.path_for(storage_key)
+        if not path.is_file():
+            return False
+        path.unlink()
+        return True
+
     def put(
         self,
         data: bytes,
@@ -167,7 +226,7 @@ class FilesystemArtifactStore:
         digest = hashlib.sha256(data).hexdigest()
         storage_key = self.storage_key_for(digest)
         wrote_blob = self._write_if_absent(storage_key, data)
-        artifact_id = self._maybe_insert_metadata(
+        artifact_id = record_artifact_metadata(
             session=session,
             sha256=digest,
             storage_key=storage_key,
@@ -244,7 +303,7 @@ class FilesystemArtifactStore:
             tmp_path.unlink(missing_ok=True)
             raise
 
-        artifact_id = self._maybe_insert_metadata(
+        artifact_id = record_artifact_metadata(
             session=session,
             sha256=digest,
             storage_key=storage_key,
@@ -288,48 +347,67 @@ class FilesystemArtifactStore:
             raise
         return True
 
-    def _maybe_insert_metadata(
-        self,
-        *,
-        session: Session | None,
-        sha256: str,
-        storage_key: str,
-        size_bytes: int,
-        media_type: str,
-        kind: str,
-        run_id: uuid.UUID | None,
-        event_id: uuid.UUID | None,
-        metadata: dict[str, object] | None,
-    ) -> uuid.UUID | None:
-        """Insert an ``artifacts`` metadata row when a session is provided.
 
-        Args:
-            session: SQLAlchemy session, or ``None`` to skip DB writes.
-            sha256: Content digest.
-            storage_key: Relative blob key.
-            size_bytes: Stored size.
-            media_type: MIME type.
-            kind: Artifact kind.
-            run_id: Optional run foreign key.
-            event_id: Optional event foreign key.
-            metadata: Extra JSONB fields.
+def record_artifact_metadata(
+    *,
+    session: Session | None,
+    sha256: str,
+    storage_key: str,
+    size_bytes: int,
+    media_type: str,
+    kind: str,
+    run_id: uuid.UUID | None,
+    event_id: uuid.UUID | None,
+    metadata: dict[str, object] | None,
+) -> uuid.UUID | None:
+    """Insert an ``artifacts`` metadata row when a session is provided.
 
-        Returns:
-            New artifact id, or ``None`` when no session was given.
-        """
-        if session is None:
-            return None
-        row = Artifact(
-            id=uuid.uuid4(),
-            run_id=run_id,
-            event_id=event_id,
-            sha256=sha256,
-            kind=kind,
-            media_type=media_type,
-            size_bytes=size_bytes,
-            storage_key=storage_key,
-            metadata_=dict(metadata or {}),
-        )
-        session.add(row)
-        session.flush()
-        return row.id
+    Args:
+        session: SQLAlchemy session, or ``None`` to skip DB writes.
+        sha256: Content digest.
+        storage_key: Logical content-addressed key.
+        size_bytes: Stored size.
+        media_type: MIME type.
+        kind: Artifact kind.
+        run_id: Optional run foreign key.
+        event_id: Optional event foreign key.
+        metadata: Extra JSONB fields.
+
+    Returns:
+        New artifact id, or ``None`` when no session was given.
+    """
+    if session is None:
+        return None
+    row = Artifact(
+        id=uuid.uuid4(),
+        run_id=run_id,
+        event_id=event_id,
+        sha256=sha256,
+        kind=kind,
+        media_type=media_type,
+        size_bytes=size_bytes,
+        storage_key=storage_key,
+        metadata_=dict(metadata or {}),
+    )
+    session.add(row)
+    session.flush()
+    return row.id
+
+
+def create_artifact_store(
+    settings: ArtifactStoreSettings | None = None,
+) -> ArtifactStore:
+    """Build the configured artifact store, defaulting to the filesystem.
+
+    Args:
+        settings: Explicit settings; loads the process environment when omitted.
+
+    Returns:
+        A filesystem or S3-compatible artifact store.
+    """
+    resolved = settings if settings is not None else load_artifact_store_settings()
+    if resolved.backend == "s3":
+        from browser_use_agent.artifacts.s3_store import S3ArtifactStore
+
+        return S3ArtifactStore.from_settings(resolved)
+    return FilesystemArtifactStore(resolved.root)

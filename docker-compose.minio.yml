@@ -1,0 +1,11 @@
+services:
+  controller:
+    secrets:
+      - minio_access_key
+      - minio_secret_key
+
+secrets:
+  minio_access_key:
+    file: ./secrets/minio_access_key
+  minio_secret_key:
+    file: ./secrets/minio_secret_key

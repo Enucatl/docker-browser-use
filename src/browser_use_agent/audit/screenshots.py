@@ -18,7 +18,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from browser_use_agent.artifacts.store import FilesystemArtifactStore
+from browser_use_agent.artifacts.store import ArtifactStore
 from browser_use_agent.audit.checkpoints import StateFingerprint, fingerprint_observation
 from browser_use_agent.audit.writer import AuditAppend
 from browser_use_agent.policy.actions import ActionKind, BrowserObservation
@@ -318,7 +318,7 @@ class ScreenshotWriter:
     def __init__(
         self,
         audit: AuditAppend,
-        store: FilesystemArtifactStore,
+        store: ArtifactStore,
         *,
         capture: ScreenshotCaptureFn | None = None,
         session: Session | None = None,

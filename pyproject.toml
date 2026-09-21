@@ -19,6 +19,7 @@ authors = [
 ]
 dependencies = [
     "alembic>=1.14",
+    "boto3>=1.35",
     "browser-use>=0.13.0",
     "fastapi>=0.141.1",
     "jinja2>=3.1.6",

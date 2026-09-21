@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from browser_use_agent.artifacts.settings import load_artifact_store_settings
 from browser_use_agent.artifacts.state_diff import StateDiffSettings
-from browser_use_agent.artifacts.store import FilesystemArtifactStore
+from browser_use_agent.artifacts.store import ArtifactStore, create_artifact_store
 from browser_use_agent.db.engine import create_engine_from_settings
 from browser_use_agent.db.models import Artifact
 
@@ -173,7 +173,7 @@ def apply_retention(
     plan: Iterable[RetentionDecision],
     *,
     session: Session,
-    store: FilesystemArtifactStore,
+    store: ArtifactStore,
     now: datetime | None = None,
 ) -> RetentionResult:
     """Soft-delete metadata and remove only unreferenced content blobs.
@@ -209,9 +209,7 @@ def apply_retention(
     session.commit()
     removed: list[str] = []
     for storage_key in removable:
-        path = store.path_for(storage_key)
-        if path.is_file():
-            path.unlink()
+        if store.delete(storage_key):
             removed.append(storage_key)
     return RetentionResult(soft_deleted, len(removed), tuple(removed))
 
@@ -264,7 +262,7 @@ def _cli(argv: list[str] | None = None) -> int:
             result = apply_retention(
                 plan,
                 session=session,
-                store=FilesystemArtifactStore.from_settings(load_artifact_store_settings()),
+                store=create_artifact_store(load_artifact_store_settings()),
             )
             print(f"soft deleted: {result.soft_deleted}; blobs removed: {result.blobs_removed}")
     return 0

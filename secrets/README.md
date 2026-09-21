@@ -10,6 +10,8 @@ Put local secret files in this directory. Real secret values stay out of git
 | `postgres_password` | Compose `db` + `controller` | `openssl rand -hex 32 > secrets/postgres_password` |
 | `jev_api_key` | Compose `controller` (`JEV_API_KEY_FILE`) | paste Jev bearer token (one line) |
 | `openrouter_api_key` | Compose `controller` (`TEXT_LLM_API_KEY_FILE`) | paste OpenRouter API key (one line) |
+| `minio_access_key` | Compose `controller` + `minio` | MinIO access key (one line) |
+| `minio_secret_key` | Compose `controller` + `minio` | MinIO secret key (one line) |
 
 Example:
 
@@ -19,6 +21,8 @@ openssl rand -hex 32 > secrets/postgres_password
 # Leave empty until you have live keys (empty → FakeJev / no text LLM):
 : > secrets/jev_api_key
 : > secrets/openrouter_api_key
+printf '%s\n' 'browser-use-minio' > secrets/minio_access_key
+openssl rand -hex 32 > secrets/minio_secret_key
 # Or write real values:
 # printf '%s\n' 'jv_live_…' > secrets/jev_api_key
 # printf '%s\n' 'sk-or-…' > secrets/openrouter_api_key

@@ -9,7 +9,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from browser_use_agent.artifacts.store import FilesystemArtifactStore
+from browser_use_agent.artifacts.store import ArtifactStore
 from browser_use_agent.security.redaction import redact_for_audit, redact_text
 
 # Payloads at or above this UTF-8 byte size may be stored as artifacts.
@@ -50,7 +50,7 @@ def maybe_offload_json(
     payload: Mapping[str, Any],
     *,
     session: Session,
-    store: FilesystemArtifactStore | None,
+    store: ArtifactStore | None,
     run_id: uuid.UUID,
     event_id: uuid.UUID,
     kind: str,

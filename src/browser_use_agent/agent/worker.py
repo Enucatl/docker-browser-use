@@ -63,15 +63,15 @@ TextLLMFactory = Callable[[], TextLLMClient | None]
 
 
 def _optional_artifact_store():
-    """Build a filesystem artifact store when ``ARTIFACTS_ROOT`` is usable.
+    """Build the configured artifact store when it is usable.
 
     Returns:
         Store instance, or ``None`` when the root is unset / unusable.
     """
     try:
-        from browser_use_agent.artifacts.store import FilesystemArtifactStore
+        from browser_use_agent.artifacts.store import create_artifact_store
 
-        return FilesystemArtifactStore.from_settings()
+        return create_artifact_store()
     except Exception:
         logger.debug("Artifact store unavailable for model-call offload", exc_info=True)
         return None

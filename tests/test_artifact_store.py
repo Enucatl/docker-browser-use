@@ -12,6 +12,7 @@ import pytest
 from browser_use_agent.artifacts import (
     ArtifactNotFoundError,
     FilesystemArtifactStore,
+    create_artifact_store,
     load_artifact_store_settings,
     zstd_compress,
     zstd_decode_json,
@@ -128,3 +129,31 @@ def test_load_artifact_store_settings(
     store = FilesystemArtifactStore.from_settings(settings)
     result = store.put(b"via-settings", media_type="text/plain", kind="download")
     assert store.get(result.storage_key) == b"via-settings"
+
+
+def test_artifact_store_factory_defaults_to_filesystem(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The backend switch defaults to filesystem storage."""
+    monkeypatch.delenv("ARTIFACT_STORE", raising=False)
+    monkeypatch.setenv("ARTIFACTS_ROOT", str(tmp_path))
+    assert isinstance(create_artifact_store(), FilesystemArtifactStore)
+
+
+def test_s3_settings_read_credentials_from_secret_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """S3 mode reads credentials from files rather than literal env values."""
+    access_file = tmp_path / "access"
+    secret_file = tmp_path / "secret"
+    access_file.write_text("access\n", encoding="utf-8")
+    secret_file.write_text("secret\n", encoding="utf-8")
+    monkeypatch.setenv("ARTIFACT_STORE", "s3")
+    monkeypatch.setenv("ARTIFACT_S3_ACCESS_KEY_FILE", str(access_file))
+    monkeypatch.setenv("ARTIFACT_S3_SECRET_KEY_FILE", str(secret_file))
+    settings = load_artifact_store_settings()
+    assert settings.backend == "s3"
+    assert settings.access_key == "access"
+    assert settings.secret_key == "secret"

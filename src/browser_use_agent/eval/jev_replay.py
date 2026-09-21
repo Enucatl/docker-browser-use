@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from browser_use_agent.artifacts.store import FilesystemArtifactStore
+from browser_use_agent.artifacts.store import create_artifact_store
 from browser_use_agent.audit.checkpoints import (
     CHECKPOINT_SCHEMA_VERSION,
     load_checkpoint_payload,
@@ -195,7 +195,7 @@ def _load_checkpoint(
                 data = path.read_bytes()
                 name = str(path)
             else:
-                data = FilesystemArtifactStore.from_settings().get(str(checkpoint))
+                data = create_artifact_store().get(str(checkpoint))
                 name = str(checkpoint)
         payload = load_checkpoint_payload(data)
     if payload.get("schema_version") != CHECKPOINT_SCHEMA_VERSION:

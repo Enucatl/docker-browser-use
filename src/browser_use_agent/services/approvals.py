@@ -155,6 +155,9 @@ def _decide(
     )
     session.flush()
 
+    # Commit before waking the worker. Otherwise it can start its next DB
+    # write while this transaction still holds the run/approval row locks.
+    session.commit()
     get_control_hub().set_approval_decision(run.id, hub_decision)
     return run, pending
 

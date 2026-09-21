@@ -10,6 +10,7 @@ from browser_use_agent.policy.actions import (
     ActionParams,
     AgentAction,
     BrowserObservation,
+    BrowserTab,
     CandidateElement,
     ScrollDirection,
 )
@@ -54,6 +55,7 @@ __all__ = [
     "ActionParams",
     "AgentAction",
     "BrowserObservation",
+    "BrowserTab",
     "CandidateElement",
     "FakeDecision",
     "FakeJevClient",

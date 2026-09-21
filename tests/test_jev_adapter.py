@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -98,6 +99,7 @@ def test_action_space_encoded_once() -> None:
         "SCROLL",
         "GO_BACK",
         "NAVIGATE",
+        "SWITCH_TAB",
         "DONE",
         "BITWARDEN_LOGIN",
         "BITWARDEN_IDENTITY",
@@ -311,6 +313,68 @@ def test_observation_from_mapping_and_agent_action_roundtrip_fields() -> None:
     assert action.requires_target() is False
     with pytest.raises(ValidationError):
         AgentAction(kind=ActionKind.CLICK, confidence=1.5)
+
+
+def test_modal_controls_and_popup_tabs_are_visible_to_jev() -> None:
+    """DOM dialog controls and background popup tabs get explicit signals."""
+    dialog = SimpleNamespace(
+        node_name="div",
+        attributes={"role": "dialog", "aria-label": "Cookie consent"},
+        parent_node=None,
+        get_meaningful_text_for_llm=lambda: "Cookie consent",
+    )
+    button = SimpleNamespace(
+        node_name="button",
+        attributes={"type": "button"},
+        parent_node=dialog,
+        get_meaningful_text_for_llm=lambda: "Accept cookies",
+    )
+    underlying_link = SimpleNamespace(
+        node_name="a",
+        attributes={"href": "/article"},
+        parent_node=None,
+        get_meaningful_text_for_llm=lambda: "Article under dialog",
+    )
+    observation = observation_from_browser_state(
+        SimpleNamespace(
+            url="https://example.test/",
+            title="Example",
+            tabs=[
+                SimpleNamespace(
+                    target_id="target-current",
+                    url="https://example.test/",
+                    title="Example",
+                ),
+                SimpleNamespace(
+                    target_id="target-popup",
+                    url="https://consent.example.test/",
+                    title="Consent",
+                ),
+            ],
+            dom_state=SimpleNamespace(selector_map={7: button, 8: underlying_link}),
+        )
+    )
+
+    assert observation.candidates[0].is_modal_control is True
+    assert [candidate.index for candidate in observation.candidates] == [7]
+    assert observation.candidates[0].modal_context == "Cookie consent"
+    request = JevAdapter().to_jev_request(observation, goal="Accept cookies")
+    assert "modal-control" in (request.questions["click_target"].criteria["7"] or "")
+    assert request.questions["tab_target"].criteria == {
+        "opup": "Consent (https://consent.example.test/)"
+    }
+
+    action = JevAdapter().from_jev_response(
+        JevResponse(
+            answers={
+                "operation": {"type": "choice", "choice": "SWITCH_TAB"},
+                "tab_target": {"type": "choice", "choice": "opup"},
+            }
+        ),
+        observation=observation,
+    )
+    assert action.kind == ActionKind.SWITCH_TAB
+    assert action.params.tab_id == "opup"
 
 
 def test_http_client_requires_api_key() -> None:

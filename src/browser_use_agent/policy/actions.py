@@ -29,6 +29,7 @@ CORE_ACTION_KINDS: Final[tuple[str, ...]] = (
     "SCROLL",
     "GO_BACK",
     "NAVIGATE",
+    "SWITCH_TAB",
     "DONE",
 )
 
@@ -50,6 +51,7 @@ class ActionKind(StrEnum):
     SCROLL = "SCROLL"
     GO_BACK = "GO_BACK"
     NAVIGATE = "NAVIGATE"
+    SWITCH_TAB = "SWITCH_TAB"
     DONE = "DONE"
     BITWARDEN_LOGIN = "BITWARDEN_LOGIN"
     BITWARDEN_IDENTITY = "BITWARDEN_IDENTITY"
@@ -94,6 +96,9 @@ class CandidateElement(BaseModel):
         input_type: ``type`` attribute for inputs (``password`` is normalized).
         is_editable: Whether the element accepts text input.
         is_password_field: True when the control is a password input (no value).
+        is_modal_control: True when the control belongs to a dialog, overlay, or
+            consent surface.
+        modal_context: Short non-secret context for the dialog or overlay.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -106,6 +111,8 @@ class CandidateElement(BaseModel):
     input_type: str | None = None
     is_editable: bool = False
     is_password_field: bool = False
+    is_modal_control: bool = False
+    modal_context: str | None = None
 
     @field_validator("tag", "role", "name", "href", "input_type", mode="before")
     @classmethod
@@ -131,6 +138,15 @@ class CandidateElement(BaseModel):
             parts.append("password-field")
         elif self.input_type:
             parts.append(f"type={self.input_type}")
+        if self.is_modal_control:
+            parts.append("modal-control")
+        if self.modal_context:
+            context = (
+                self.modal_context
+                if len(self.modal_context) <= 80
+                else f"{self.modal_context[:77]}..."
+            )
+            parts.append(f'context="{context}"')
         if self.name:
             # Cap length so criteria stay small / cheap for Jev tokens.
             label = self.name if len(self.name) <= 80 else f"{self.name[:77]}..."
@@ -141,6 +157,17 @@ class CandidateElement(BaseModel):
         if not parts:
             return f"element[{self.index}]"
         return " ".join(parts)
+
+
+class BrowserTab(BaseModel):
+    """Safe summary of one open browser tab or popup window."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tab_id: str = Field(min_length=4, max_length=4)
+    url: str = ""
+    title: str = ""
+    is_current: bool = False
 
 
 class BrowserObservation(BaseModel):
@@ -155,6 +182,7 @@ class BrowserObservation(BaseModel):
         page_summary: Optional short textual page digest (already redacted).
         suggested_urls: Optional navigate targets (bookmarks / extracted links).
         browser_errors: Recent browser/page errors when present.
+        tabs: Open browser tabs, including non-focused popup windows.
         available_operations: Ops to advertise; defaults to the full Phase-1 set.
     """
 
@@ -168,6 +196,7 @@ class BrowserObservation(BaseModel):
     page_summary: str | None = None
     suggested_urls: list[str] = Field(default_factory=list)
     browser_errors: list[str] = Field(default_factory=list)
+    tabs: list[BrowserTab] = Field(default_factory=list)
     available_operations: list[ActionKind] = Field(
         default_factory=lambda: list(DEFAULT_AVAILABLE_OPERATIONS),
     )
@@ -194,6 +223,10 @@ class BrowserObservation(BaseModel):
         """Return candidates suitable for ``TYPE_TEXT`` / Bitwarden fills."""
         return [c for c in self.candidates if c.is_editable or c.is_password_field]
 
+    def tab_by_id(self, tab_id: str) -> BrowserTab | None:
+        """Return an open tab by Browser Use's four-character tab id."""
+        return next((tab for tab in self.tabs if tab.tab_id == tab_id), None)
+
 
 class ActionParams(BaseModel):
     """Optional parameters attached to an :class:`AgentAction`.
@@ -206,6 +239,7 @@ class ActionParams(BaseModel):
         amount: Optional scroll magnitude hint.
         item_name: Optional non-secret Bitwarden item-name selector.
         item_id: Optional non-secret Bitwarden item-id selector.
+        tab_id: Browser Use's four-character tab id for ``SWITCH_TAB``.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -217,6 +251,7 @@ class ActionParams(BaseModel):
     amount: int | None = Field(default=None, ge=0)
     item_name: str | None = None
     item_id: str | None = None
+    tab_id: str | None = Field(default=None, min_length=4, max_length=4)
 
 
 class AgentAction(BaseModel):

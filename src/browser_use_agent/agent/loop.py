@@ -1307,6 +1307,15 @@ def _observation_audit_payload(observation: BrowserObservation) -> dict[str, Any
         "pixels_below": observation.pixels_below,
         "page_summary": observation.page_summary,
         "browser_errors": observation.browser_errors[:8],
+        "tabs": [
+            {"tab_id": tab.tab_id, "url": tab.url, "title": tab.title, "is_current": tab.is_current}
+            for tab in observation.tabs[:32]
+        ],
+        "modal_candidates": [
+            {"index": c.index, "name": c.name, "context": c.modal_context}
+            for c in observation.candidates
+            if c.is_modal_control
+        ],
     }
     redacted = redact_for_audit(payload)
     return redacted if isinstance(redacted, dict) else {"value": redacted}

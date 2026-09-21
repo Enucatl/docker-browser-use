@@ -12,7 +12,9 @@ candidates exist; only the head matching the chosen operation is applied.
 
 from __future__ import annotations
 
+import re
 from typing import Any
+from urllib.parse import urlsplit
 
 from browser_use_agent.policy.actions import (
     TARGETED_KINDS,
@@ -20,6 +22,7 @@ from browser_use_agent.policy.actions import (
     ActionParams,
     AgentAction,
     BrowserObservation,
+    BrowserTab,
     CandidateElement,
     ScrollDirection,
 )
@@ -42,14 +45,25 @@ BITWARDEN_TARGET_INSTRUCTIONS = (
     "Choose the element index for a Bitwarden autofill (no secrets in state)."
 )
 SCROLL_INSTRUCTIONS = "Choose the scroll direction for this page."
-NAVIGATE_INSTRUCTIONS = "Choose which suggested URL to open next."
+NAVIGATE_INSTRUCTIONS = "Choose which URL from the goal or page suggestions to open next."
+TAB_TARGET_INSTRUCTIONS = "Choose the open tab or popup window to work with."
+
+_GOAL_URL_RE = re.compile(
+    r"(?i)(?<![@\w])(?:"
+    r"(?:https?://|www\.)[^\s<>()]+|"
+    r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}"
+    r"(?:/[^\s<>()]*)?"
+    r")"
+)
+_URL_TRAILING_CHARS = ".,;:!?)]}'\""
 
 OPERATION_CRITERIA: dict[str, str] = {
     ActionKind.CLICK.value: "Click an interactable element by index.",
     ActionKind.TYPE_TEXT.value: "Type into an editable field (text filled later).",
     ActionKind.SCROLL.value: "Scroll the page viewport.",
     ActionKind.GO_BACK.value: "Navigate back in browser history.",
-    ActionKind.NAVIGATE.value: "Open a suggested URL.",
+    ActionKind.NAVIGATE.value: "Open a URL from the goal or page suggestions.",
+    ActionKind.SWITCH_TAB.value: "Switch to an open tab or popup window.",
     ActionKind.DONE.value: "The goal is complete; stop the run.",
     ActionKind.BITWARDEN_LOGIN.value: "Fill the current site's login via Bitwarden.",
     ActionKind.BITWARDEN_IDENTITY.value: "Fill identity fields via Bitwarden.",
@@ -122,6 +136,18 @@ class JevAdapter:
                     ActionKind.BITWARDEN_CARD,
                 }
             ]
+        goal_urls = _extract_goal_urls(goal)
+        suggested = _unique_urls(
+            goal_urls + [u.strip() for u in observation.suggested_urls if u and u.strip()]
+        )
+        if not suggested and observation.url and observation.url != "about:blank":
+            # Allow re-navigation to the current URL as a safe no-op option set.
+            suggested = [observation.url]
+        if not suggested:
+            ops = [op for op in ops if op != ActionKind.NAVIGATE]
+        switchable_tabs = [tab for tab in observation.tabs if not tab.is_current]
+        if not switchable_tabs:
+            ops = [op for op in ops if op != ActionKind.SWITCH_TAB]
         if ActionKind.DONE not in ops:
             ops.append(ActionKind.DONE)
 
@@ -180,18 +206,24 @@ class JevAdapter:
                 },
             )
 
-        suggested = [u for u in observation.suggested_urls if u and u.strip()]
-        if not suggested and observation.url:
-            # Allow re-navigation to the current URL as a safe no-op option set.
-            suggested = [observation.url]
-        if ActionKind.NAVIGATE in ops and suggested:
+        if ActionKind.NAVIGATE in ops:
             questions["navigate_url"] = JevChoiceQuestion(
                 instructions=NAVIGATE_INSTRUCTIONS,
                 criteria={u: u for u in suggested[:32]},
             )
 
+        if ActionKind.SWITCH_TAB in ops:
+            questions["tab_target"] = JevChoiceQuestion(
+                instructions=TAB_TARGET_INSTRUCTIONS,
+                criteria={
+                    tab.tab_id: _tab_label(tab)
+                    for tab in switchable_tabs[:32]
+                },
+            )
+
         state = {
             "goal": redact_text(goal),
+            "goal_urls": goal_urls,
             "history_summary": redact_text(history_summary) if history_summary else "",
             "url": observation.url,
             "title": redact_text(observation.title) if observation.title else "",
@@ -214,6 +246,18 @@ class JevAdapter:
                 for c in observation.candidates
             ],
             "browser_errors": [redact_text(e) for e in observation.browser_errors],
+            "tabs": [tab.model_dump(mode="json") for tab in observation.tabs],
+            "modal_candidates": [
+                {
+                    "index": c.index,
+                    "tag": c.tag,
+                    "role": c.role,
+                    "name": c.name,
+                    "context": c.modal_context,
+                }
+                for c in observation.candidates
+                if c.is_modal_control
+            ],
             "available_operations": [op.value for op in ops],
         }
         safe_state = redact_for_audit(state)
@@ -292,6 +336,14 @@ class JevAdapter:
                 raise JevAdapterError("NAVIGATE requires a navigate_url choice")
             params = ActionParams(url=nav.choice)
 
+        if kind == ActionKind.SWITCH_TAB:
+            tab = resp.choice("tab_target")
+            if tab is None or (
+                observation is not None and observation.tab_by_id(tab.choice) is None
+            ):
+                raise JevAdapterError("SWITCH_TAB requires an open tab target")
+            params = ActionParams(tab_id=tab.choice)
+
         if kind == ActionKind.DONE:
             done_meta = resp.choice("done_meta")
             if done_meta is not None:
@@ -361,6 +413,7 @@ def observation_from_browser_state(state: Any) -> BrowserObservation:
     if isinstance(selector_map, dict):
         for index, node in selector_map.items():
             candidates.append(_candidate_from_dom_node(int(index), node))
+    candidates = _limit_to_modal_candidates(candidates)
 
     return BrowserObservation(
         url=url,
@@ -369,6 +422,7 @@ def observation_from_browser_state(state: Any) -> BrowserObservation:
         pixels_above=pixels_above,
         pixels_below=pixels_below,
         browser_errors=[str(e) for e in browser_errors],
+        tabs=_tabs_from_state(getattr(state, "tabs", None), url=url, title=title),
     )
 
 
@@ -388,6 +442,7 @@ def _observation_from_mapping(data: dict[str, Any]) -> BrowserObservation:
             candidates.append(item)
         elif isinstance(item, dict):
             candidates.append(CandidateElement.model_validate(item))
+    candidates = _limit_to_modal_candidates(candidates)
     ops_raw = data.get("available_operations")
     ops = [ActionKind(o) for o in ops_raw] if ops_raw else list(ActionKind)
     return BrowserObservation(
@@ -399,6 +454,11 @@ def _observation_from_mapping(data: dict[str, Any]) -> BrowserObservation:
         page_summary=data.get("page_summary"),
         suggested_urls=list(data.get("suggested_urls") or []),
         browser_errors=[str(e) for e in data.get("browser_errors") or []],
+        tabs=_tabs_from_state(
+            data.get("tabs"),
+            url=str(data.get("url") or ""),
+            title=str(data.get("title") or ""),
+        ),
         available_operations=ops,
     )
 
@@ -435,6 +495,7 @@ def _candidate_from_dom_node(index: int, node: Any) -> CandidateElement:
         name = attrs.get("aria-label") or attrs.get("placeholder") or "password"
     href = attrs.get("href")
     is_editable = tag in {"input", "textarea"} or attrs.get("contenteditable") == "true"
+    modal_context = _modal_context(node, name=name)
     return CandidateElement(
         index=index,
         tag=tag or None,
@@ -444,7 +505,79 @@ def _candidate_from_dom_node(index: int, node: Any) -> CandidateElement:
         input_type="password" if is_password else input_type,
         is_editable=bool(is_editable),
         is_password_field=is_password,
+        is_modal_control=modal_context is not None,
+        modal_context=modal_context,
     )
+
+
+def _limit_to_modal_candidates(candidates: list[CandidateElement]) -> list[CandidateElement]:
+    """Hide page controls behind an active semantically marked dialog."""
+    modal = [candidate for candidate in candidates if candidate.is_modal_control]
+    if not modal:
+        return candidates
+
+    return modal
+
+
+def _modal_context(node: Any, *, name: Any = None) -> str | None:
+    """Find a short context for standard dialog semantics on a node or ancestor."""
+    current = node
+    for _ in range(10):
+        attrs = getattr(current, "attributes", None) or {}
+        tag = str(getattr(current, "node_name", "") or "").lower()
+        role = str(attrs.get("role") or "").lower()
+        if (
+            tag == "dialog"
+            or role in {"dialog", "alertdialog"}
+            or str(attrs.get("aria-modal") or "").lower() == "true"
+        ):
+            try:
+                text = getattr(current, "get_meaningful_text_for_llm", lambda: None)()
+            except Exception:
+                text = None
+            context = str(text or name or attrs.get("aria-label") or role or tag).strip()
+            return context[:120] or "dialog"
+        current = getattr(current, "parent_node", None)
+        if current is None:
+            break
+    return None
+
+
+def _tabs_from_state(raw_tabs: Any, *, url: str, title: str) -> list[BrowserTab]:
+    """Convert Browser Use tab objects or checkpoint mappings to safe tab data."""
+    tabs: list[BrowserTab] = []
+    for raw in raw_tabs or []:
+        if isinstance(raw, BrowserTab):
+            tabs.append(raw)
+            continue
+        if isinstance(raw, dict):
+            tab_id = raw.get("tab_id") or raw.get("target_id")
+            tab_url = str(raw.get("url") or "")
+            tab_title = str(raw.get("title") or "")
+            current = bool(raw.get("is_current")) or (tab_url == url and tab_title == title)
+        else:
+            tab_id = getattr(raw, "tab_id", None) or getattr(raw, "target_id", None)
+            tab_url = str(getattr(raw, "url", "") or "")
+            tab_title = str(getattr(raw, "title", "") or "")
+            current = tab_url == url and tab_title == title
+        if tab_id:
+            tabs.append(
+                BrowserTab(
+                    tab_id=str(tab_id)[-4:],
+                    url=tab_url,
+                    title=tab_title,
+                    is_current=current,
+                )
+            )
+    if tabs and not any(tab.is_current for tab in tabs):
+        tabs[0].is_current = True
+    return tabs
+
+
+def _tab_label(tab: BrowserTab) -> str:
+    """Build a compact, non-secret tab label for Jev."""
+    label = tab.title or tab.url or "untitled tab"
+    return f"{label[:100]} ({tab.url[:100]})" if tab.url and tab.url != label else label[:120]
 
 
 def _candidate_criteria(candidates: list[CandidateElement]) -> dict[str, str | None]:
@@ -460,6 +593,26 @@ def _candidate_criteria(candidates: list[CandidateElement]) -> dict[str, str | N
     for candidate in candidates[:255]:
         out[str(candidate.index)] = candidate.criteria_label()
     return out
+
+
+def _extract_goal_urls(goal: str) -> list[str]:
+    """Extract HTTP(S) site URLs from a natural-language goal."""
+    urls: list[str] = []
+    for match in _GOAL_URL_RE.finditer(goal):
+        raw = match.group(0).rstrip(_URL_TRAILING_CHARS)
+        if not raw:
+            continue
+        if not raw.startswith(("http://", "https://")):
+            raw = f"https://{raw}"
+        parsed = urlsplit(raw)
+        if parsed.scheme in {"http", "https"} and parsed.netloc and raw not in urls:
+            urls.append(raw)
+    return urls
+
+
+def _unique_urls(urls: list[str]) -> list[str]:
+    """Keep URL order while removing duplicate navigation choices."""
+    return list(dict.fromkeys(urls))
 
 
 def _resolve_target_answer(resp: JevResponse, kind: ActionKind) -> JevChoiceAnswer | None:

@@ -139,3 +139,14 @@ def test_browser_use_port_dispatches_bitwarden_executor() -> None:
         assert result.ok is True
 
     asyncio.run(_run())
+
+
+def test_browser_use_port_builds_switch_tab_payload() -> None:
+    """Popup tab selection uses Browser Use's native switch action."""
+    action = AgentAction(
+        kind=ActionKind.SWITCH_TAB,
+        params=ActionParams(tab_id="abcd"),
+    )
+    assert BrowserUsePort(_Session())._action_model_payload(action) == {
+        "switch": {"tab_id": "abcd"},
+    }

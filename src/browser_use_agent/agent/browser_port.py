@@ -367,6 +367,11 @@ class BrowserUsePort:
                 raise ValueError("NAVIGATE requires params.url")
             return {"navigate": {"url": action.params.url, "new_tab": False}}
 
+        if action.kind == ActionKind.SWITCH_TAB:
+            if not action.params.tab_id:
+                raise ValueError("SWITCH_TAB requires params.tab_id")
+            return {"switch": {"tab_id": action.params.tab_id}}
+
         if action.kind == ActionKind.GO_BACK:
             return {"go_back": {}}
 

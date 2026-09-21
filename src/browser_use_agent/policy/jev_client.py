@@ -271,7 +271,7 @@ class FakeDecision:
 
     Attributes:
         operation: Action kind string (e.g. ``CLICK``).
-        target_key: Target criteria key (usually an index string).
+        target_key: Target criteria key (usually an index or tab id string).
         confidence: Operation confidence to report.
         probabilities: Optional operation probability map.
         target_confidence: Optional target-head confidence.
@@ -553,5 +553,6 @@ def _target_question_for_operation(operation: str) -> str | None:
         ActionKind.BITWARDEN_LOGIN.value: "bitwarden_target",
         ActionKind.BITWARDEN_IDENTITY.value: "bitwarden_target",
         ActionKind.BITWARDEN_CARD.value: "bitwarden_target",
+        ActionKind.SWITCH_TAB.value: "tab_target",
     }
     return mapping.get(operation)

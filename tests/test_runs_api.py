@@ -131,14 +131,14 @@ def test_create_run_persists_and_emits_audit(api_client: TestClient, postgres_ur
     """POST /api/runs stores a run and writes task_received / run_created events."""
     response = api_client.post(
         "/api/runs",
-        json={"goal": "Open example.com and summarize the homepage", "profile_id": "personal"},
+        json={"goal": "Open example.com and summarize the homepage", "profile_id": "default"},
     )
     assert response.status_code == 201
     body = response.json()
     run_id = uuid.UUID(body["id"])
     assert body["goal"].startswith("Open example.com")
     assert body["status"] == RunStatus.QUEUED.value
-    assert body["profile_id"] == "personal"
+    assert body["profile_id"] == "default"
     assert body["cost"] is None
 
     engine = create_engine(postgres_url, pool_pre_ping=True)

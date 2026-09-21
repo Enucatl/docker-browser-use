@@ -27,6 +27,7 @@ REQUIRED_TABLES = frozenset(
         "cost_entries",
         "errors",
         "artifacts",
+        "audit_checkpoints",
         "alembic_version",
     }
 )
@@ -136,7 +137,7 @@ def test_upgrade_head_creates_schema(postgres_url: str, monkeypatch: pytest.Monk
 
         with engine.connect() as conn:
             version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            assert version == "0002_tracing_fields"
+            assert version == "0003_signed_audit_checkpoints"
 
             # Append-only: INSERT works; UPDATE/DELETE are rejected by triggers.
             run_id = uuid.uuid4()

@@ -15,7 +15,12 @@ from browser_use_agent.audit.hashchain import (
     compute_event_hash,
     event_hash_fields,
 )
+from browser_use_agent.audit.signed_checkpoints import (
+    TERMINAL_EVENT_TYPES,
+    SignedCheckpointWriter,
+)
 from browser_use_agent.db.models import AgentEvent, Run
+from browser_use_agent.runs.status import TERMINAL_STATUSES
 from browser_use_agent.security.redaction import redact_for_audit, redact_text
 
 Actor = Literal["agent", "human", "system"]
@@ -40,6 +45,7 @@ class AuditAppend(Protocol):
         event_id: uuid.UUID | None = None,
     ) -> Any:
         """Append one audit event."""
+
 
 _VALID_ACTORS = frozenset({"agent", "human", "system"})
 
@@ -86,6 +92,7 @@ class AuditWriter:
             session: Active SQLAlchemy session (caller owns the transaction).
         """
         self.session = session
+        self.checkpoints = SignedCheckpointWriter(session)
 
     def append(
         self,
@@ -192,6 +199,13 @@ class AuditWriter:
         )
         self.session.add(row)
         self.session.flush()
+        self.checkpoints.maybe_checkpoint(
+            row,
+            terminal=(
+                event_type in TERMINAL_EVENT_TYPES
+                or run.status in {status.value for status in TERMINAL_STATUSES}
+            ),
+        )
         if _append_hook is not None:
             _append_hook(row)
         return row

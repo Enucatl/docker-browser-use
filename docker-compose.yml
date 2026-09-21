@@ -25,6 +25,11 @@ services:
       - DATABASE_NAME=browser_use
       - DATABASE_USER=browser_use
       - DATABASE_PASSWORD_FILE=/run/secrets/postgres_password
+      # T035 signed audit checkpoints; private key is signing-only, public keys verify.
+      - AUDIT_SIGNING_KEY_FILE=/run/secrets/audit_signing_key
+      - AUDIT_SIGNING_PUBLIC_KEY_FILE=/run/secrets/audit_signing_public_key
+      - AUDIT_SIGNING_KEY_ID=${AUDIT_SIGNING_KEY_ID:-default}
+      - AUDIT_CHECKPOINT_INTERVAL=${AUDIT_CHECKPOINT_INTERVAL:-10}
       # Content-addressed blobs; not exposed via Traefik (see docs/artifacts.md).
       - ARTIFACT_STORE=${ARTIFACT_STORE:-fs}
       - ARTIFACTS_ROOT=/var/lib/browser-use/artifacts
@@ -77,6 +82,8 @@ services:
       - browser_downloads:/data/downloads
     secrets:
       - postgres_password
+      - audit_signing_key
+      - audit_signing_public_key
       - jev_api_key
       - openrouter_api_key
     networks:
@@ -247,6 +254,10 @@ services:
 secrets:
   postgres_password:
     file: ./secrets/postgres_password
+  audit_signing_key:
+    file: ./secrets/audit_signing_key
+  audit_signing_public_key:
+    file: ./secrets/audit_signing_public_key
   jev_api_key:
     file: ./secrets/jev_api_key
   openrouter_api_key:

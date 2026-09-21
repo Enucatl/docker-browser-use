@@ -18,6 +18,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    LargeBinary,
     Numeric,
     Text,
     UniqueConstraint,
@@ -156,6 +157,28 @@ class AgentEvent(Base):
     event_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     run: Mapped[Run] = relationship(back_populates="events")
+
+
+class AuditCheckpoint(Base):
+    """Signed chain head for a run at a specific event sequence."""
+
+    __tablename__ = "audit_checkpoints"
+    __table_args__ = (Index("ix_audit_checkpoints_run_id", "run_id"),)
+
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("runs.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    seq: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    chain_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    key_id: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'default'"))
+    signature: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
 
 
 class AgentDecision(Base):

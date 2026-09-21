@@ -21,6 +21,18 @@ event stream. Artifact **blobs** live on volume `artifacts_data` (see
 [`docs/artifacts.md`](../docs/artifacts.md)); the `artifacts` table stores
 metadata only.
 
+T035 adds signed chain-head checkpoints in `audit_checkpoints`. The controller
+signs every `AUDIT_CHECKPOINT_INTERVAL` events (default `10`) and every terminal
+event; Ed25519 signing is one small insert/sign operation per interval, so the
+overhead is negligible. Verify both layers with `verify_run_audit(...)` or:
+
+```bash
+uv run verify-audit RUN_UUID
+```
+
+Set `AUDIT_SIGNING_KEY_ID` for rotation and keep prior public keys in the JSON
+mapping at `AUDIT_SIGNING_PUBLIC_KEYS_FILE` until all historical runs are gone.
+
 Apply migrations (compose `db` healthy, with `DATABASE_PASSWORD_FILE` mounted):
 
 ```bash

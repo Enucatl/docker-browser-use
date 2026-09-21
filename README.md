@@ -31,9 +31,11 @@ Prerequisites: Traefik (`traefik_proxy`), Authelia middlewares, `/opt/docker/.en
 export COMPOSE_ENV_FILES=../.env
 mkdir -p secrets
 openssl rand -hex 32 > secrets/postgres_password
+openssl genpkey -algorithm ED25519 -out secrets/audit_signing_key
+openssl pkey -in secrets/audit_signing_key -pubout -out secrets/audit_signing_public_key
 : > secrets/jev_api_key
 : > secrets/openrouter_api_key
-chmod 600 secrets/postgres_password secrets/jev_api_key secrets/openrouter_api_key
+chmod 600 secrets/*
 docker compose config
 docker compose up -d
 ```

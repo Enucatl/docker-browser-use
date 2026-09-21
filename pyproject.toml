@@ -21,6 +21,7 @@ dependencies = [
     "alembic>=1.14",
     "boto3>=1.35",
     "browser-use>=0.13.0",
+    "cryptography>=50.0",
     "fastapi>=0.141.1",
     "jinja2>=3.1.6",
     "niquests>=3.14.0",
@@ -54,6 +55,7 @@ dev = [
 
 [project.scripts]
 evaluate-jev = "browser_use_agent.eval.jev_replay:main"
+verify-audit = "browser_use_agent.audit.signed_checkpoints:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

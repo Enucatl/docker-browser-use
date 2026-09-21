@@ -21,8 +21,6 @@ COPY alembic.ini alembic.ini
 COPY alembic/ alembic/
 # uv build needs packaging metadata files declared in pyproject.toml.
 COPY README.md LICENSE ./
-# Hosted BuildKit contexts do not include .git; setuptools-git-versioning uses
-# starting_version when building without repository metadata.
 RUN uv sync --frozen --no-dev --no-editable
 
 # ---- Stage 2: runtime ----

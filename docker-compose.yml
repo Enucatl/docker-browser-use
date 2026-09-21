@@ -51,18 +51,6 @@ services:
       - "traefik.http.routers.browser-use.middlewares=authelia@docker,secured@file"
       - "traefik.http.services.browser-use.loadbalancer.server.port=8000"
     ports: []
-    healthcheck:
-      test:
-        [
-          "CMD",
-          ".venv/bin/python",
-          "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)",
-        ]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
     tmpfs:
       - /tmp:rw,nosuid,noexec,mode=1777,size=16m
     volumes:
@@ -100,23 +88,18 @@ services:
     user: "1000:1000"
     security_opt:
       - no-new-privileges:true
+      # Moby default seccomp plus the namespace calls required by Chromium's sandbox.
+      - seccomp:./seccomp-chromium.json
     shm_size: "2gb"
     cpu_shares: 1024
     environment:
       - TZ=Europe/Zurich
       # T022 view-only; interactive takeover is T023.
       - VNC_VIEW_ONLY=${VNC_VIEW_ONLY:-true}
-      # Required in Docker without Chrome user-namespace sandbox support.
-      - CHROMIUM_FLAGS=--no-sandbox --disable-gpu --disable-dev-shm-usage
+      - CHROMIUM_FLAGS=--disable-gpu --disable-dev-shm-usage
     restart: unless-stopped
     # Intentionally empty: do not publish CDP (9222) or VNC (5900) to the host.
     ports: []
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://127.0.0.1:9222/json/version"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
     tmpfs:
       - /tmp:rw,nosuid,nodev,mode=1777,size=256m
     volumes:
@@ -142,23 +125,13 @@ services:
       - TZ=Europe/Zurich
     restart: unless-stopped
     ports: []
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:6080/', timeout=2)\"",
-        ]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
     tmpfs:
       - /tmp:rw,nosuid,noexec,mode=1777,size=16m
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik_proxy"
       # Higher priority than the controller Host() rule so /vnc is not swallowed.
-      - "traefik.http.routers.browser-use-vnc.rule=Host(`browser-use.${DOCKER_DOMAIN}`) && PathPrefix(`/vnc`)"
+      - "traefik.http.routers.browser-use-vnc.rule=Host(`browser-use.${DOCKER_DOMAIN}`) && PathPrefix(`/vnc/`)"
       - "traefik.http.routers.browser-use-vnc.entrypoints=https"
       - "traefik.http.routers.browser-use-vnc.tls=true"
       - "traefik.http.routers.browser-use-vnc.priority=200"
@@ -166,6 +139,15 @@ services:
       - "traefik.http.routers.browser-use-vnc.service=browser-use-vnc"
       - "traefik.http.middlewares.browser-use-vnc-strip.stripprefix.prefixes=/vnc"
       - "traefik.http.services.browser-use-vnc.loadbalancer.server.port=6080"
+      # Canonicalize the bare path so relative noVNC assets resolve below /vnc/.
+      - "traefik.http.routers.browser-use-vnc-slash.rule=Host(`browser-use.${DOCKER_DOMAIN}`) && Path(`/vnc`)"
+      - "traefik.http.routers.browser-use-vnc-slash.entrypoints=https"
+      - "traefik.http.routers.browser-use-vnc-slash.tls=true"
+      - "traefik.http.routers.browser-use-vnc-slash.priority=210"
+      - "traefik.http.routers.browser-use-vnc-slash.service=noop@internal"
+      - "traefik.http.routers.browser-use-vnc-slash.middlewares=browser-use-vnc-slash"
+      - "traefik.http.middlewares.browser-use-vnc-slash.redirectregex.regex=^https?://([^/]+)/vnc$"
+      - "traefik.http.middlewares.browser-use-vnc-slash.redirectregex.replacement=https://$${1}/vnc/"
     networks:
       - traefik_proxy
       - default

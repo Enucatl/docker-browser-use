@@ -33,11 +33,11 @@ Why not full `hardened-*`:
    locks, and shader/cache paths. A read-only rootfs needs a large set of tmpfs
    exceptions that still behave like a writable runtime; we keep a normal rootfs
    and confine state to `/data/*` plus `/tmp/chromium`.
-2. **Sandbox vs `cap_drop: ALL`** — Docker typically lacks the user-namespace setup
-   Chrome’s Zygote sandbox expects. We run with `--no-sandbox` (see
-   `CHROMIUM_FLAGS`). Dropping all capabilities on top of that adds little
-   isolation for a process that already disables its sandbox, and has broken
-   Chromium in similar stacks.
+2. **Chromium sandbox compatibility** — the image installs Debian's
+   `chromium-sandbox` helper and removes `--no-sandbox`. The browser service uses
+   `seccomp-chromium.json`, based on Docker's default profile with only the
+   namespace calls needed by Chromium's user-namespace sandbox added. This keeps
+   `no-new-privileges` enabled while allowing Chromium's own sandbox to start.
 3. **Xvfb + x11vnc (T022)** — need `/tmp` X11 sockets/locks and extra RAM/PIDs for
    a headed session. Profile bumped from `limits-xlarge` → `limits-xxlarge`
    (3g / 768 pids). Raw VNC uses `-nopw` because RFB is internal-only; Authelia
@@ -47,12 +47,14 @@ What we still apply:
 
 - Memory / PID caps from `limits-xxlarge` (3g / 768 pids)
 - `security_opt: no-new-privileges:true`
+- Moby default seccomp policy plus the Chromium namespace exceptions in
+  `seccomp-chromium.json`
 - Non-root user `1000:1000` matching the profile volume
 - `shm_size: 2gb` (Chrome shared memory)
 - No Traefik labels, no host `ports` (CDP or VNC)
 
-Revisit `hardened-xlarge` with targeted tmpfs mounts if a future Chrome build runs
-cleanly under `cap_drop: ALL` without `--no-sandbox`.
+Revisit `hardened-xlarge` with targeted tmpfs mounts and capability dropping if a
+future Chrome build supports the full read-only runtime profile cleanly.
 
 ## CDP binding
 

@@ -36,9 +36,13 @@ RUN python -m pip uninstall -y --root-user-action=ignore pip \
 RUN groupadd --system app \
     && useradd --system --gid app --create-home --home-dir /app app
 
+RUN mkdir -p /var/lib/browser-use/artifacts \
+    && chown -R app:app /var/lib/browser-use
+
 ENV PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH" \
-    BROWSER_USE_ROOT=/app
+    BROWSER_USE_ROOT=/app \
+    BROWSER_USE_CONFIG_DIR=/tmp/browseruse
 
 WORKDIR /app
 
@@ -50,6 +54,9 @@ COPY --from=builder --chown=app:app /app/alembic /app/alembic
 USER app
 
 EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD [".venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)"]
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD [".venv/bin/python", "-m", "browser_use_agent"]

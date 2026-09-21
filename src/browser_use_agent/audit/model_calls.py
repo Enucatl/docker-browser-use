@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from browser_use_agent.artifacts.store import FilesystemArtifactStore
+from browser_use_agent.audit.costs import estimate_model_cost, record_cost_entry
 from browser_use_agent.audit.payloads import (
     DEFAULT_INLINE_LIMIT_BYTES,
     maybe_offload_json,
@@ -114,7 +115,12 @@ class ModelCallWriter:
 
         cost: Decimal | None
         if cost_usd is None:
-            cost = None
+            cost = estimate_model_cost(
+                model_name,
+                prompt_tokens,
+                completion_tokens,
+                call_kind=call_kind,
+            )
         elif isinstance(cost_usd, Decimal):
             cost = cost_usd
         else:
@@ -143,4 +149,16 @@ class ModelCallWriter:
         )
         self.session.add(row)
         self.session.flush()
+        if cost is not None:
+            record_cost_entry(
+                self.session,
+                run_id=event.run_id,
+                event_id=event.id,
+                amount=cost,
+                kind="model",
+                model_name=model_name,
+                call_kind=call_kind,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            )
         return row

@@ -28,7 +28,7 @@ def pause_run(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except run_service.RunControlError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    return _to_response(run)
+    return _to_response(run, session)
 
 
 @router.post("/{run_id}/resume", response_model=RunResponse)
@@ -43,7 +43,7 @@ def resume_run(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except run_service.RunControlError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    return _to_response(run)
+    return _to_response(run, session)
 
 
 @router.post("/{run_id}/cancel", response_model=RunResponse)
@@ -56,7 +56,7 @@ def cancel_run(
         run = run_service.cancel_run(session, run_id)
     except run_service.RunNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    return _to_response(run)
+    return _to_response(run, session)
 
 
 @router.post("/{run_id}/retry", response_model=RunResponse)
@@ -83,4 +83,4 @@ async def retry_run(
             session.expire_all()
             run = run_service.get_run(session, run_id)
 
-    return _to_response(run)
+    return _to_response(run, session)

@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from browser_use_agent.agent.worker import RunWorker
 from browser_use_agent.api.deps import CurrentUser, get_session
 from browser_use_agent.api.events_bus import bound_payload
+from browser_use_agent.audit.costs import recent_cost_summary, run_cost
 from browser_use_agent.db.models import AgentEvent, HumanApproval, Run
 from browser_use_agent.runs.status import TERMINAL_STATUSES, RunStatus
 from browser_use_agent.services import approvals as approval_service
@@ -94,11 +95,17 @@ def _event_row(event: AgentEvent) -> dict[str, Any]:
     }
 
 
-def _run_context(run: Run, *, pending: HumanApproval | None = None) -> dict[str, Any]:
+def _run_context(
+    run: Run,
+    session: Session,
+    *,
+    pending: HumanApproval | None = None,
+) -> dict[str, Any]:
     """Build template context fields for one run.
 
     Args:
         run: Persisted run row.
+        session: Open SQLAlchemy session for cost totals.
         pending: Optional pending human approval row.
 
     Returns:
@@ -125,7 +132,7 @@ def _run_context(run: Run, *, pending: HumanApproval | None = None) -> dict[str,
         "updated_at": _iso(run.updated_at),
         "started_at": _iso(run.started_at),
         "finished_at": _iso(run.finished_at),
-        "cost": None,
+        "cost": run_cost(session, run.id),
         "terminal": terminal,
         "awaiting_approval": awaiting_approval,
         "awaiting_human": awaiting_human,
@@ -199,7 +206,7 @@ def home(
         "home.html",
         {
             "user": user,
-            "runs": [_run_context(run) for run in runs],
+            "runs": [_run_context(run, session) for run in runs],
             "error": request.query_params.get("error"),
         },
     )
@@ -213,12 +220,14 @@ def history(
 ) -> Response:
     """Render run history list (same data as home, focused view)."""
     runs = run_service.list_runs(session, limit=_HISTORY_LIMIT)
+    summary = recent_cost_summary(session)
     return templates.TemplateResponse(
         request,
         "history.html",
         {
             "user": user,
-            "runs": [_run_context(run) for run in runs],
+            "runs": [_run_context(run, session) for run in runs],
+            "cost_summary": summary,
         },
     )
 
@@ -264,7 +273,7 @@ def run_detail(
 
     pending = approval_service.get_pending_approval(session, run_id)
     events = _load_events(session, run_id)
-    ctx = _run_context(run, pending=pending)
+    ctx = _run_context(run, session, pending=pending)
     return templates.TemplateResponse(
         request,
         "run.html",

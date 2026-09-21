@@ -29,7 +29,7 @@ def take_control(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except run_service.RunControlError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    return _to_response(run)
+    return _to_response(run, session)
 
 
 @router.post("/{run_id}/release-control", response_model=RunResponse)
@@ -45,4 +45,4 @@ def release_control(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except run_service.RunControlError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    return _to_response(run)
+    return _to_response(run, session)

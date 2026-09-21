@@ -22,7 +22,7 @@ from browser_use_agent.audit.browser_actions import BrowserActionWriter
 from browser_use_agent.audit.model_calls import ModelCallWriter
 from browser_use_agent.audit.writer import AuditWriter
 from browser_use_agent.db.migrate import upgrade_head
-from browser_use_agent.db.models import BrowserAction, ModelCall, Run
+from browser_use_agent.db.models import BrowserAction, CostEntry, ModelCall, Run
 from browser_use_agent.policy.actions import (
     BrowserObservation,
     CandidateElement,
@@ -315,11 +315,14 @@ def test_fake_run_writes_model_calls_and_browser_actions(
     assert outcome.status == RunStatus.SUCCEEDED
 
     calls = list(db_session.scalars(select(ModelCall).where(ModelCall.run_id == run.id)).all())
+    costs = list(db_session.scalars(select(CostEntry).where(CostEntry.run_id == run.id)).all())
     actions = list(
         db_session.scalars(select(BrowserAction).where(BrowserAction.run_id == run.id)).all()
     )
 
     assert any(c.call_kind == "jev" for c in calls)
+    assert len(costs) == len(calls)
+    assert sum(cost.amount for cost in costs) > 0
     jev_call = next(c for c in calls if c.call_kind == "jev")
     assert jev_call.event_id is not None
     assert jev_call.event_seq is not None

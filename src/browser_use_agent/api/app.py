@@ -16,6 +16,7 @@ from browser_use_agent.api.auth import RemoteUserAuthMiddleware
 from browser_use_agent.api.csrf import CsrfOriginMiddleware
 from browser_use_agent.api.events_bus import get_event_bus
 from browser_use_agent.api.routes.approvals import router as approvals_router
+from browser_use_agent.api.routes.costs import router as costs_router
 from browser_use_agent.api.routes.run_controls import router as run_controls_router
 from browser_use_agent.api.routes.runs import router as runs_router
 from browser_use_agent.api.routes.takeover import router as takeover_router
@@ -104,6 +105,7 @@ def create_app(
     app.include_router(runs_router)
     app.include_router(run_controls_router)
     app.include_router(approvals_router)
+    app.include_router(costs_router)
     app.include_router(takeover_router)
     app.include_router(ws_router)
     mount_web_ui(app)

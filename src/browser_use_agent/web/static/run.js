@@ -11,6 +11,7 @@
   const list = document.getElementById("event-list");
   const wsState = document.getElementById("ws-state");
   const statusEl = document.getElementById("run-status");
+  const costEl = document.getElementById("run-cost");
   const decisionEl = document.getElementById("current-decision");
   let lastSeq = 0;
   let socket = null;
@@ -175,6 +176,9 @@
       .then(function (body) {
         if (!body || !statusEl) {
           return;
+        }
+        if (costEl && body.cost != null) {
+          costEl.textContent = "$" + body.cost + " USD";
         }
         if (body.status && body.status !== statusEl.textContent) {
           statusEl.textContent = body.status;

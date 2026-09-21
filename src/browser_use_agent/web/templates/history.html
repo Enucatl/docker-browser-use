@@ -3,6 +3,7 @@
 {% block content %}
 <section class="panel">
   <h1>Run history</h1>
+  <p class="cost">Recent total: ${{ cost_summary.total }} USD</p>
   {% if runs %}
   <ul class="run-list">
     {% for run in runs %}
@@ -10,7 +11,7 @@
       <a href="/runs/{{ run.id }}">
         <span class="status status-{{ run.status }}">{{ run.status }}</span>
         <span class="goal">{{ run.goal }}</span>
-        <span class="muted">{{ run.created_at }}</span>
+        <span class="muted">{{ run.created_at }} · Cost: {% if run.cost is not none %}${{ run.cost }}{% else %}—{% endif %}</span>
       </a>
     </li>
     {% endfor %}

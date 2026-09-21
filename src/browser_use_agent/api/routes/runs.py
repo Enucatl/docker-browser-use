@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from browser_use_agent.api.deps import get_session
+from browser_use_agent.audit.costs import run_cost
 from browser_use_agent.db.models import Run
 from browser_use_agent.services import runs as run_service
 
@@ -43,15 +44,16 @@ class RunResponse(BaseModel):
     finished_at: datetime | None
     cost: Decimal | None = Field(
         default=None,
-        description="Placeholder until cost tracking (T029).",
+        description="Accumulated USD cost from model calls, when priced.",
     )
 
 
-def _to_response(run: Run) -> RunResponse:
-    """Map an ORM run to the API response, with a null cost placeholder.
+def _to_response(run: Run, session: Session | None = None) -> RunResponse:
+    """Map an ORM run to the API response, including accumulated cost.
 
     Args:
         run: Persisted run row.
+        session: Optional session used to sum cost entries.
 
     Returns:
         JSON-serializable run payload.
@@ -65,7 +67,7 @@ def _to_response(run: Run) -> RunResponse:
         updated_at=run.updated_at,
         started_at=run.started_at,
         finished_at=run.finished_at,
-        cost=None,
+        cost=run_cost(session, run.id) if session is not None else None,
     )
 
 
@@ -86,7 +88,7 @@ async def create_run(
         session.expire_all()
         run = run_service.get_run(session, run.id)
 
-    return _to_response(run)
+    return _to_response(run, session)
 
 
 @router.get("", response_model=list[RunResponse])
@@ -95,7 +97,7 @@ def list_runs(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> list[RunResponse]:
     """List recent runs newest-first."""
-    return [_to_response(run) for run in run_service.list_runs(session, limit=limit)]
+    return [_to_response(run, session) for run in run_service.list_runs(session, limit=limit)]
 
 
 @router.get("/{run_id}", response_model=RunResponse)
@@ -108,7 +110,7 @@ def get_run(
         run = run_service.get_run(session, run_id)
     except run_service.RunNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    return _to_response(run)
+    return _to_response(run, session)
 
 
 @router.post("/{run_id}/stop", response_model=RunResponse)
@@ -121,4 +123,4 @@ def stop_run(
         run = run_service.stop_run(session, run_id)
     except run_service.RunNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    return _to_response(run)
+    return _to_response(run, session)

@@ -1,0 +1,11 @@
+# USD prices. Token prices are per 1,000 tokens; request fees are per call.
+models:
+  gpt-4.1-mini:
+    input_per_1k_tokens: 0.0004
+    output_per_1k_tokens: 0.0016
+  jev-latest:
+    request_fee_usd: 0.00005
+  jev-fake:
+    request_fee_usd: 0.00005
+  fake-text-llm:
+    output_per_1k_tokens: 0.0001

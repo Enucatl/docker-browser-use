@@ -7,13 +7,19 @@
   <p>
     Status:
     <strong id="run-status" class="status status-{{ run.status }}">{{ run.status }}</strong>
-    · Cost: <span id="run-cost" class="muted">—</span>
+    · Cost: <span id="run-cost" class="cost">{% if run.cost is not none %}${{ run.cost }} USD{% else %}—{% endif %}</span>
   </p>
   <p class="muted">
     Created {{ run.created_at }}
     {% if run.started_at %} · Started {{ run.started_at }}{% endif %}
     {% if run.finished_at %} · Finished {{ run.finished_at }}{% endif %}
   </p>
+</section>
+
+<section class="panel">
+  <h2>Cost</h2>
+  <p class="cost">{% if run.cost is not none %}${{ run.cost }} USD{% else %}No priced model calls yet.{% endif %}</p>
+  <p class="muted">Model-call estimates from the configured price table.</p>
 </section>
 
 <section class="panel">

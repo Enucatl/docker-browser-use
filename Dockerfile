@@ -16,6 +16,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project --no-editable
 
 COPY src/ src/
+COPY config/ config/
 COPY alembic.ini alembic.ini
 COPY alembic/ alembic/
 # uv build needs packaging metadata files declared in pyproject.toml.
@@ -48,6 +49,7 @@ WORKDIR /app
 
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --from=builder --chown=app:app /app/src /app/src
+COPY --from=builder --chown=app:app /app/config /app/config
 COPY --from=builder --chown=app:app /app/alembic.ini /app/alembic.ini
 COPY --from=builder --chown=app:app /app/alembic /app/alembic
 

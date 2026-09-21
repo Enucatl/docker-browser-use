@@ -82,6 +82,10 @@ main {
   color: var(--muted);
 }
 
+.cost {
+  font-variant-numeric: tabular-nums;
+}
+
 .mono {
   font-family: "IBM Plex Mono", ui-monospace, monospace;
   font-size: 0.85rem;

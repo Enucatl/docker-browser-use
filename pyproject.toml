@@ -51,6 +51,9 @@ dev = [
     "ruff>=0.6",
 ]
 
+[project.scripts]
+evaluate-jev = "browser_use_agent.eval.jev_replay:main"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [

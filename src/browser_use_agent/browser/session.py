@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import uuid
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from browser_use import BrowserSession
-from sqlalchemy.orm import Session
 
 from browser_use_agent.browser.cdp import (
     CdpUnavailableError,
@@ -24,12 +24,9 @@ from browser_use_agent.browser.compose_control import (
 from browser_use_agent.browser.profiles import BrowserProfileConfig, get_profile
 from browser_use_agent.browser.settings import BrowserSettings, load_browser_settings
 
-if TYPE_CHECKING:
-    from browser_use_agent.audit.writer import AuditWriter
-
 logger = logging.getLogger(__name__)
 
-AuditFactory = Callable[[Session], "AuditWriter"]
+AuditFactory = Callable[[Any], Any]
 
 
 class BrowserSessionManagerError(RuntimeError):
@@ -57,7 +54,7 @@ class BrowserSessionManager:
         settings: BrowserSettings | None = None,
         *,
         audit_factory: AuditFactory | None = None,
-        session_factory: Callable[[], Session] | None = None,
+        session_factory: Callable[[], Any] | None = None,
     ) -> None:
         """Create a session manager.
 
@@ -134,7 +131,7 @@ class BrowserSessionManager:
         run_id: uuid.UUID,
         *,
         profile_name: str | None = None,
-        db_session: Session | None = None,
+        db_session: Any | None = None,
     ) -> BrowserSession:
         """Attach Browser Use for ``run_id`` (single interactive session).
 
@@ -171,7 +168,7 @@ class BrowserSessionManager:
             self._holder_run_ids[profile.id] = run_id
             self._run_profiles[run_id] = profile.id
             self._profiles[profile.id] = profile
-            self._emit_audit(
+            await self._emit_audit(
                 run_id,
                 "browser_started",
                 {
@@ -189,7 +186,7 @@ class BrowserSessionManager:
         self,
         run_id: uuid.UUID,
         *,
-        db_session: Session | None = None,
+        db_session: Any | None = None,
         shutdown_now: bool = False,
     ) -> None:
         """Release the interactive hold for ``run_id`` and arm idle disconnect.
@@ -214,7 +211,7 @@ class BrowserSessionManager:
             else:
                 self._arm_idle_timer(profile_id=profile_id, last_run_id=run_id)
 
-    async def shutdown(self, *, db_session: Session | None = None) -> None:
+    async def shutdown(self, *, db_session: Any | None = None) -> None:
         """Disconnect Browser Use and cancel idle timers.
 
         Args:
@@ -306,7 +303,7 @@ class BrowserSessionManager:
         *,
         profile_id: str,
         run_id: uuid.UUID | None,
-        db_session: Session | None,
+        db_session: Any | None,
     ) -> None:
         """Gracefully stop Browser Use without killing Chromium.
 
@@ -323,7 +320,7 @@ class BrowserSessionManager:
             except Exception:
                 logger.exception("Browser Use stop() failed; profile should still be intact")
             if run_id is not None:
-                self._emit_audit(
+                await self._emit_audit(
                     run_id,
                     "browser_stopped",
                     {
@@ -380,13 +377,13 @@ class BrowserSessionManager:
         if task is not None and not task.done():
             task.cancel()
 
-    def _emit_audit(
+    async def _emit_audit(
         self,
         run_id: uuid.UUID,
         event_type: str,
         payload: dict[str, Any],
         *,
-        db_session: Session | None,
+        db_session: Any | None,
     ) -> None:
         """Append an audit event when a writer can be constructed.
 
@@ -408,13 +405,21 @@ class BrowserSessionManager:
             return
         try:
             writer = self._audit_factory(session)
-            writer.append(run_id, event_type, payload, actor="system")
+            result = writer.append(run_id, event_type, payload, actor="system")
+            if inspect.isawaitable(result):
+                await result
             if owns_session:
-                session.commit()
+                result = session.commit()
+                if inspect.isawaitable(result):
+                    await result
         except Exception:
             logger.exception("Failed to write audit event %s", event_type)
             if owns_session:
-                session.rollback()
+                result = session.rollback()
+                if inspect.isawaitable(result):
+                    await result
         finally:
             if owns_session:
-                session.close()
+                result = session.close()
+                if inspect.isawaitable(result):
+                    await result

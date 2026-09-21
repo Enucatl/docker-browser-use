@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from browser_use_agent.agent.browser_port import BrowserUsePort
@@ -74,7 +73,7 @@ def _login_action(**params: Any) -> AgentAction:
     )
 
 
-def test_login_uses_browser_shortcut_without_secret_material() -> None:
+async def test_login_uses_browser_shortcut_without_secret_material() -> None:
     """Login autofill focuses the target and sends only the extension shortcut."""
 
     async def _run() -> None:
@@ -88,10 +87,10 @@ def test_login_uses_browser_shortcut_without_secret_material() -> None:
         assert result.metadata["fields_affected"] == ["username", "password"]
         assert "hunter2" not in str(result.metadata)
 
-    asyncio.run(_run())
+    await _run()
 
 
-def test_stale_target_fails_closed() -> None:
+async def test_stale_target_fails_closed() -> None:
     """A changed selector map never receives an autofill shortcut."""
 
     async def _run() -> None:
@@ -103,10 +102,10 @@ def test_stale_target_fails_closed() -> None:
         assert result.metadata["result"] == "stale_target"
         assert session.page.keys == []
 
-    asyncio.run(_run())
+    await _run()
 
 
-def test_identity_and_card_are_explicit_fail_closed_stubs() -> None:
+async def test_identity_and_card_are_explicit_fail_closed_stubs() -> None:
     """Unsupported fill types never try to handle secrets in the controller."""
 
     async def _run() -> None:
@@ -119,7 +118,7 @@ def test_identity_and_card_are_explicit_fail_closed_stubs() -> None:
             assert result.metadata["result"] == "unsupported_action"
         assert session.page.keys == []
 
-    asyncio.run(_run())
+    await _run()
 
 
 def test_audit_payload_redacts_secret_shaped_item_names() -> None:
@@ -130,7 +129,7 @@ def test_audit_payload_redacts_secret_shaped_item_names() -> None:
     assert payload["fields_affected"] == ["username", "password"]
 
 
-def test_browser_use_port_dispatches_bitwarden_executor() -> None:
+async def test_browser_use_port_dispatches_bitwarden_executor() -> None:
     """The live browser port routes specialized actions to the executor."""
 
     async def _run() -> None:
@@ -138,7 +137,7 @@ def test_browser_use_port_dispatches_bitwarden_executor() -> None:
         result = await BrowserUsePort(session, tools=_Tools()).execute(_login_action())
         assert result.ok is True
 
-    asyncio.run(_run())
+    await _run()
 
 
 def test_browser_use_port_builds_switch_tab_payload() -> None:

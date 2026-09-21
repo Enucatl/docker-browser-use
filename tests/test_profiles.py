@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -48,7 +47,7 @@ def test_profiles_have_isolated_paths_and_testing_default() -> None:
     assert get_profile(settings=settings).id == "testing"
 
 
-def test_profile_lock_is_exclusive_per_profile() -> None:
+async def test_profile_lock_is_exclusive_per_profile() -> None:
     """A second run cannot acquire a profile already held by another run."""
 
     async def run() -> None:
@@ -78,4 +77,4 @@ def test_profile_lock_is_exclusive_per_profile() -> None:
             await manager.release(personal_run, shutdown_now=True)
             await manager.release(work_run, shutdown_now=True)
 
-    asyncio.run(run())
+    await run()

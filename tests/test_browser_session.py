@@ -57,7 +57,7 @@ def test_load_browser_profiles_default(monkeypatch: pytest.MonkeyPatch) -> None:
     assert profile.downloads_dir == "/data/downloads"
 
 
-def test_acquire_rejects_second_run() -> None:
+async def test_acquire_rejects_second_run() -> None:
     """Only one interactive session holder is allowed."""
 
     async def _run() -> None:
@@ -84,10 +84,10 @@ def test_acquire_rejects_second_run() -> None:
                 await manager.acquire_for_run(run_b)
             await manager.release(run_a, shutdown_now=True)
 
-    asyncio.run(_run())
+    await _run()
 
 
-def test_idle_detach_calls_stop_not_kill() -> None:
+async def test_idle_detach_calls_stop_not_kill() -> None:
     """Idle TTL disconnects via stop() so Chromium/profile stay intact."""
 
     async def _run() -> None:
@@ -117,10 +117,10 @@ def test_idle_detach_calls_stop_not_kill() -> None:
             fake.kill.assert_not_called()
             assert manager.is_attached is False
 
-    asyncio.run(_run())
+    await _run()
 
 
-def test_wait_for_cdp_times_out() -> None:
+async def test_wait_for_cdp_times_out() -> None:
     """wait_for_cdp raises when the endpoint never answers."""
 
     async def _run() -> None:
@@ -131,7 +131,7 @@ def test_wait_for_cdp_times_out() -> None:
             with pytest.raises(CdpUnavailableError):
                 await wait_for_cdp("http://browser:9222", timeout=0.05, poll_interval=0.01)
 
-    asyncio.run(_run())
+    await _run()
 
 
 def _cdp_reachable(url: str) -> bool:
@@ -145,7 +145,7 @@ def _cdp_reachable(url: str) -> bool:
 
 
 @pytest.mark.integration
-def test_smoke_about_blank_against_live_cdp() -> None:
+async def test_smoke_about_blank_against_live_cdp() -> None:
     """Open about:blank via Browser Use when Compose CDP is reachable.
 
     Manual: ``docker compose up -d browser`` then run this test with
@@ -162,4 +162,4 @@ def test_smoke_about_blank_against_live_cdp() -> None:
         result = await manager.smoke_about_blank()
         assert "about:blank" in (result.get("url") or "")
 
-    asyncio.run(_run())
+    await _run()

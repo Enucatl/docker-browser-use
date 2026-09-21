@@ -8,6 +8,7 @@ checks cancellation between phases.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import time
 import uuid
@@ -225,13 +226,13 @@ class AgentLoop:
         Returns:
             Terminal :class:`LoopOutcome`.
         """
-        self.audit.append(
+        await self._append(
             self.run_id,
             "run_started",
             {"goal": self.goal, "max_steps": self.max_steps},
             actor="system",
         )
-        self._flush()
+        await self._flush()
 
         steps = 0
         last_step_id: uuid.UUID | None = None
@@ -259,21 +260,21 @@ class AgentLoop:
                     step_status = outcome.status.value if outcome is not None else "continued"
                     span.set_attribute("status", step_status)
             except (TypeTextBlockedError, TextLLMError) as exc:
-                self.audit.append(
+                await self._append(
                     self.run_id,
                     "action_failed",
                     {"kind": ActionKind.TYPE_TEXT.value, "error": str(exc)},
                     actor="agent",
                     step_id=step_id,
                 )
-                self.audit.append(
+                await self._append(
                     self.run_id,
                     "run_failed",
                     {"error": str(exc), "steps_completed": steps},
                     actor="system",
                     step_id=step_id,
                 )
-                self._flush()
+                await self._flush()
                 return LoopOutcome(
                     status=RunStatus.FAILED,
                     message=str(exc),
@@ -282,14 +283,14 @@ class AgentLoop:
                 )
             except (JevAdapterError, JevClientError, AgentLoopError) as exc:
                 logger.exception("Agent loop step %s failed", step_id)
-                self.audit.append(
+                await self._append(
                     self.run_id,
                     "run_failed",
                     {"error": str(exc), "steps_completed": steps},
                     actor="system",
                     step_id=step_id,
                 )
-                self._flush()
+                await self._flush()
                 return LoopOutcome(
                     status=RunStatus.FAILED,
                     message=str(exc),
@@ -298,7 +299,7 @@ class AgentLoop:
                 )
             except Exception as exc:
                 logger.exception("Unexpected agent loop failure on step %s", step_id)
-                self.audit.append(
+                await self._append(
                     self.run_id,
                     "run_failed",
                     {
@@ -308,7 +309,7 @@ class AgentLoop:
                     actor="system",
                     step_id=step_id,
                 )
-                self._flush()
+                await self._flush()
                 return LoopOutcome(
                     status=RunStatus.FAILED,
                     message=str(exc),
@@ -329,14 +330,14 @@ class AgentLoop:
                     last_step_id=step_id,
                 )
 
-        self.audit.append(
+        await self._append(
             self.run_id,
             "run_failed",
             {"error": "max_steps_exceeded", "max_steps": self.max_steps},
             actor="system",
             step_id=last_step_id,
         )
-        self._flush()
+        await self._flush()
         return LoopOutcome(
             status=RunStatus.FAILED,
             message="max_steps_exceeded",
@@ -370,7 +371,7 @@ class AgentLoop:
             t0 = time.perf_counter()
             observation = await self.browser.observe()
             observe_ms = int((time.perf_counter() - t0) * 1000)
-        self.audit.append(
+        await self._append(
             self.run_id,
             "observation_captured",
             _observation_audit_payload(observation),
@@ -379,7 +380,7 @@ class AgentLoop:
             url=observation.url or None,
             duration_ms=observe_ms,
         )
-        self._flush()
+        await self._flush()
 
         await self._maybe_checkpoint(step_id, observation)
         await self._maybe_screenshot(step_id, observation)
@@ -391,14 +392,14 @@ class AgentLoop:
             step_number=step_number,
         )
         if gate is _FRESH_OBSERVE:
-            self.audit.append(
+            await self._append(
                 self.run_id,
                 "takeover_fresh_observe",
                 {"reason": "before_decide", "step_number": step_number},
                 actor="system",
                 step_id=step_id,
             )
-            self._flush()
+            await self._flush()
             return None
         if gate is not None:
             return gate
@@ -408,7 +409,7 @@ class AgentLoop:
         request = self.adapter.to_jev_request(observation, self.goal, history_summary)
         with self.telemetry.span("jev", run_id=self.run_id, step_id=step_id) as span:
             t1 = time.perf_counter()
-            response = self.jev.decide(request)
+            response = await self.jev.decide(request)
             decide_ms = int((time.perf_counter() - t1) * 1000)
             action = self.adapter.from_jev_response(response, observation=observation)
             span.set_attribute("action.kind", action.kind.value)
@@ -426,7 +427,7 @@ class AgentLoop:
             "raw_answers": action.raw_answers,
             "model": response.model,
         }
-        decision_event = self.audit.append(
+        decision_event = await self._append(
             self.run_id,
             "decision",
             decision_payload,
@@ -435,14 +436,14 @@ class AgentLoop:
             url=observation.url or None,
             duration_ms=decide_ms,
         )
-        self._record_jev_model_call(
+        await self._record_jev_model_call(
             event=decision_event,
             request=request,
             response=response,
             action=action,
             latency_ms=decide_ms,
         )
-        self._flush()
+        await self._flush()
 
         approval_req = invoke_needs_approval(
             self.needs_approval,
@@ -456,7 +457,7 @@ class AgentLoop:
         if approval_req is not None:
             await self._maybe_checkpoint(step_id, observation, force_reason="approval")
             await self._maybe_screenshot(step_id, observation, force_reason="approval")
-            requested_event = self.audit.append(
+            requested_event = await self._append(
                 self.run_id,
                 "approval_requested",
                 {
@@ -473,15 +474,17 @@ class AgentLoop:
                 step_id=step_id,
                 url=observation.url or None,
             )
-            self._flush()
+            await self._flush()
 
             approval_id: uuid.UUID | None = None
             if self.on_approval_requested is not None:
-                approval_id = self.on_approval_requested(approval_req, requested_event.id)
+                approval_id = await self._call_hook_result(
+                    self.on_approval_requested, approval_req, requested_event.id
+                )
 
             if self.set_status is not None:
-                self.set_status(RunStatus.AWAITING_APPROVAL)
-            self._flush()
+                await self._call_hook(self.set_status, RunStatus.AWAITING_APPROVAL)
+            await self._flush()
 
             approval_started = time.perf_counter()
             with self.telemetry.span(
@@ -502,14 +505,14 @@ class AgentLoop:
             )
 
             if decision == "cancelled":
-                self.audit.append(
+                await self._append(
                     self.run_id,
                     "run_cancelled",
                     {"reason": "cooperative_cancel_while_awaiting_approval"},
                     actor="system",
                     step_id=step_id,
                 )
-                self._flush()
+                await self._flush()
                 return LoopOutcome(
                     status=RunStatus.CANCELLED,
                     message="cancelled",
@@ -528,8 +531,8 @@ class AgentLoop:
 
             if decision == "timeout":
                 if self.on_approval_finalized is not None:
-                    self.on_approval_finalized(approval_id, "timeout")
-                self.audit.append(
+                    await self._call_hook(self.on_approval_finalized, approval_id, "timeout")
+                await self._append(
                     self.run_id,
                     "approval_timeout",
                     {
@@ -542,9 +545,9 @@ class AgentLoop:
                     actor="system",
                     step_id=step_id,
                 )
-                self._flush()
+                await self._flush()
                 if self.set_status is not None:
-                    self.set_status(RunStatus.FAILED)
+                    await self._call_hook(self.set_status, RunStatus.FAILED)
                 return LoopOutcome(
                     status=RunStatus.FAILED,
                     message="approval_timeout",
@@ -554,8 +557,8 @@ class AgentLoop:
 
             # granted — continue to execute (API already audited approval_granted).
             if self.set_status is not None:
-                self.set_status(RunStatus.RUNNING)
-            self._flush()
+                await self._call_hook(self.set_status, RunStatus.RUNNING)
+            await self._flush()
 
         gate = await self._control_gate(
             reason="before_execute",
@@ -564,25 +567,25 @@ class AgentLoop:
             step_number=step_number,
         )
         if gate is _FRESH_OBSERVE:
-            self.audit.append(
+            await self._append(
                 self.run_id,
                 "takeover_fresh_observe",
                 {"reason": "before_execute", "step_number": step_number},
                 actor="system",
                 step_id=step_id,
             )
-            self._flush()
+            await self._flush()
             return None
         if gate is not None:
             return gate
 
         # --- text LLM gate (TYPE_TEXT only) ---
-        self._fill_type_text_if_needed(action, observation=observation, step_id=step_id)
+        await self._fill_type_text_if_needed(action, observation=observation, step_id=step_id)
 
         # --- execute ---
         target_meta = _target_forensics(observation, action)
         if is_bitwarden_action(action):
-            self.audit.append(
+            await self._append(
                 self.run_id,
                 "bitwarden_fill_requested",
                 bitwarden_audit_payload(action, result="requested"),
@@ -590,7 +593,7 @@ class AgentLoop:
                 step_id=step_id,
                 url=observation.url or None,
             )
-        requested_event = self.audit.append(
+        requested_event = await self._append(
             self.run_id,
             "action_requested",
             {
@@ -602,7 +605,7 @@ class AgentLoop:
             step_id=step_id,
             url=observation.url or None,
         )
-        self._record_browser_action(
+        await self._record_browser_action(
             event=requested_event,
             action=action,
             status="requested",
@@ -613,7 +616,7 @@ class AgentLoop:
             duration_ms=None,
             exec_meta=None,
         )
-        self._flush()
+        await self._flush()
 
         with self.telemetry.span(
             "execute",
@@ -629,7 +632,7 @@ class AgentLoop:
 
         if result.ok:
             if is_bitwarden_action(action):
-                self.audit.append(
+                await self._append(
                     self.run_id,
                     "bitwarden_fill_completed",
                     bitwarden_audit_payload(
@@ -642,7 +645,7 @@ class AgentLoop:
                     url=observation.url or None,
                     duration_ms=exec_ms,
                 )
-            completed_event = self.audit.append(
+            completed_event = await self._append(
                 self.run_id,
                 "action_completed",
                 {
@@ -656,7 +659,7 @@ class AgentLoop:
                 url=observation.url or None,
                 duration_ms=exec_ms,
             )
-            self._record_browser_action(
+            await self._record_browser_action(
                 event=completed_event,
                 action=action,
                 status="completed",
@@ -667,7 +670,7 @@ class AgentLoop:
                 duration_ms=exec_ms,
                 exec_meta=result.metadata,
             )
-            self._flush()
+            await self._flush()
             self._history.append(f"{action.kind.value}:{result.message or 'ok'}")
             if is_destructive_action(action.kind):
                 await self._maybe_screenshot(
@@ -677,7 +680,7 @@ class AgentLoop:
                 )
         else:
             if is_bitwarden_action(action):
-                self.audit.append(
+                await self._append(
                     self.run_id,
                     "bitwarden_fill_failed",
                     bitwarden_audit_payload(
@@ -692,7 +695,7 @@ class AgentLoop:
                 )
             await self._maybe_checkpoint(step_id, observation, force_reason="error")
             await self._maybe_screenshot(step_id, observation, force_reason="error")
-            failed_event = self.audit.append(
+            failed_event = await self._append(
                 self.run_id,
                 "action_failed",
                 {
@@ -705,7 +708,7 @@ class AgentLoop:
                 url=observation.url or None,
                 duration_ms=exec_ms,
             )
-            self._record_browser_action(
+            await self._record_browser_action(
                 event=failed_event,
                 action=action,
                 status="failed",
@@ -717,7 +720,7 @@ class AgentLoop:
                 exec_meta=result.metadata,
             )
             if self._should_retry_step():
-                self.audit.append(
+                await self._append(
                     self.run_id,
                     "step_retry",
                     {
@@ -728,17 +731,17 @@ class AgentLoop:
                     actor="system",
                     step_id=step_id,
                 )
-                self._flush()
+                await self._flush()
                 # Continue the outer loop: fresh observe → decide.
                 return None
-            self.audit.append(
+            await self._append(
                 self.run_id,
                 "run_failed",
                 {"error": result.error or "action_failed", "kind": action.kind.value},
                 actor="system",
                 step_id=step_id,
             )
-            self._flush()
+            await self._flush()
             return LoopOutcome(
                 status=RunStatus.FAILED,
                 message=result.error or "action_failed",
@@ -746,7 +749,7 @@ class AgentLoop:
             )
 
         if result.done or action.kind == ActionKind.DONE:
-            self.audit.append(
+            await self._append(
                 self.run_id,
                 "run_succeeded",
                 {
@@ -756,7 +759,7 @@ class AgentLoop:
                 actor="system",
                 step_id=step_id,
             )
-            self._flush()
+            await self._flush()
             return LoopOutcome(
                 status=RunStatus.SUCCEEDED,
                 message=result.message or action.params.message or "done",
@@ -765,7 +768,7 @@ class AgentLoop:
 
         return None
 
-    def _fill_type_text_if_needed(
+    async def _fill_type_text_if_needed(
         self,
         action: AgentAction,
         *,
@@ -796,14 +799,14 @@ class AgentLoop:
                 step_id=step_id,
                 attributes={"action.kind": action.kind.value},
             ):
-                result = maybe_fill_type_text(
+                result = await maybe_fill_type_text(
                     action,
                     goal=self.goal,
                     observation=observation,
                     client=self.text_llm,
                 )
         except TextLLMError as exc:
-            failed_event = self.audit.append(
+            failed_event = await self._append(
                 self.run_id,
                 "model_call_failed",
                 {
@@ -817,7 +820,7 @@ class AgentLoop:
                 url=observation.url or None,
             )
             if self.model_calls is not None and _is_agent_event(failed_event):
-                self.model_calls.record(
+                await self._record_model_call(
                     event=failed_event,
                     call_kind="text_llm",
                     status="failed",
@@ -827,13 +830,13 @@ class AgentLoop:
                     },
                     response_meta={"error": str(exc)},
                 )
-            self._flush()
+            await self._flush()
             raise
 
         if result is None:
             return
 
-        call_event = self.audit.append(
+        call_event = await self._append(
             self.run_id,
             "model_call",
             {
@@ -858,7 +861,7 @@ class AgentLoop:
             request_id = result.response_meta.get("request_id") or result.request_meta.get(
                 "request_id"
             )
-            self.model_calls.record(
+            await self._record_model_call(
                 event=call_event,
                 call_kind="text_llm",
                 provider=str(provider) if provider is not None else None,
@@ -879,9 +882,9 @@ class AgentLoop:
                     "raw_output": result.raw_content,
                 },
             )
-        self._flush()
+        await self._flush()
 
-    def _record_jev_model_call(
+    async def _record_jev_model_call(
         self,
         *,
         event: Any,
@@ -905,7 +908,7 @@ class AgentLoop:
         cost = usage.cost_usd if usage is not None else None
         prompt_tokens = usage.input_tokens if usage is not None else None
         completion_tokens = usage.output_tokens if usage is not None else None
-        self.model_calls.record(
+        await self._record_model_call(
             event=event,
             call_kind="jev",
             provider="jev",
@@ -939,7 +942,7 @@ class AgentLoop:
             },
         )
 
-    def _record_browser_action(
+    async def _record_browser_action(
         self,
         *,
         event: Any,
@@ -979,7 +982,7 @@ class AgentLoop:
                 meta["bounds"] = exec_meta["bounds"]
         before_id = _optional_uuid((exec_meta or {}).get("before_artifact_id"))
         after_id = _optional_uuid((exec_meta or {}).get("after_artifact_id"))
-        self.browser_actions.record(
+        await self._record_browser_row(
             event=event,
             action_type=action.kind.value,
             status=status,
@@ -1027,14 +1030,14 @@ class AgentLoop:
             }
             if step_number is not None:
                 payload["step_number"] = step_number
-            self.audit.append(
+            await self._append(
                 self.run_id,
                 "run_cancelled",
                 payload,
                 actor="system",
                 step_id=step_id,
             )
-            self._flush()
+            await self._flush()
             return LoopOutcome(
                 status=RunStatus.CANCELLED,
                 message="cancelled",
@@ -1058,14 +1061,14 @@ class AgentLoop:
                 }
                 if step_number is not None:
                     payload["step_number"] = step_number
-                self.audit.append(
+                await self._append(
                     self.run_id,
                     "run_cancelled",
                     payload,
                     actor="system",
                     step_id=step_id,
                 )
-                self._flush()
+                await self._flush()
                 return LoopOutcome(
                     status=RunStatus.CANCELLED,
                     message="cancelled",
@@ -1082,14 +1085,14 @@ class AgentLoop:
                     }
                     if step_number is not None:
                         payload["step_number"] = step_number
-                    self.audit.append(
+                    await self._append(
                         self.run_id,
                         "run_cancelled",
                         payload,
                         actor="system",
                         step_id=step_id,
                     )
-                    self._flush()
+                    await self._flush()
                     return LoopOutcome(
                         status=RunStatus.CANCELLED,
                         message="cancelled",
@@ -1114,14 +1117,14 @@ class AgentLoop:
                 }
                 if step_number is not None:
                     payload["step_number"] = step_number
-                self.audit.append(
+                await self._append(
                     self.run_id,
                     "run_cancelled",
                     payload,
                     actor="system",
                     step_id=step_id,
                 )
-                self._flush()
+                await self._flush()
                 return LoopOutcome(
                     status=RunStatus.CANCELLED,
                     message="cancelled",
@@ -1138,14 +1141,14 @@ class AgentLoop:
                     }
                     if step_number is not None:
                         payload["step_number"] = step_number
-                    self.audit.append(
+                    await self._append(
                         self.run_id,
                         "run_cancelled",
                         payload,
                         actor="system",
                         step_id=step_id,
                     )
-                    self._flush()
+                    await self._flush()
                     return LoopOutcome(
                         status=RunStatus.CANCELLED,
                         message="cancelled",
@@ -1161,14 +1164,14 @@ class AgentLoop:
             }
             if step_number is not None:
                 payload["step_number"] = step_number
-            self.audit.append(
+            await self._append(
                 self.run_id,
                 "run_cancelled",
                 payload,
                 actor="system",
                 step_id=step_id,
             )
-            self._flush()
+            await self._flush()
             return LoopOutcome(
                 status=RunStatus.CANCELLED,
                 message="cancelled",
@@ -1281,10 +1284,44 @@ class AgentLoop:
         if maybe is not None:
             await maybe
 
-    def _flush(self) -> None:
+    async def _append(self, *args: Any, **kwargs: Any) -> Any:
+        """Append through either a sync test double or an async writer."""
+        return await self._maybe_await(self.audit.append(*args, **kwargs))
+
+    async def _record_model_call(self, **kwargs: Any) -> Any:
+        """Record through either a sync test double or an async writer."""
+        if self.model_calls is None:
+            return None
+        return await self._maybe_await(self.model_calls.record(**kwargs))
+
+    async def _record_browser_row(self, **kwargs: Any) -> Any:
+        """Record through either a sync test double or an async writer."""
+        if self.browser_actions is None:
+            return None
+        return await self._maybe_await(self.browser_actions.record(**kwargs))
+
+    async def _call_hook(self, hook: Callable[..., Any] | None, *args: Any) -> None:
+        """Invoke a sync or async persistence hook."""
+        if hook is not None:
+            await self._maybe_await(hook(*args))
+
+    async def _call_hook_result(self, hook: Callable[..., Any] | None, *args: Any) -> Any:
+        """Invoke a sync or async hook and return its result."""
+        if hook is None:
+            return None
+        return await self._maybe_await(hook(*args))
+
+    @staticmethod
+    async def _maybe_await(value: Any) -> Any:
+        """Await an awaitable while preserving synchronous test doubles."""
+        if inspect.isawaitable(value):
+            return await value
+        return value
+
+    async def _flush(self) -> None:
         """Commit the current audit batch when a commit callback is set."""
         if self._commit is not None:
-            self._commit()
+            await self._maybe_await(self._commit())
 
 
 def _observation_audit_payload(observation: BrowserObservation) -> dict[str, Any]:

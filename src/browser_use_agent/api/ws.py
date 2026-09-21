@@ -8,7 +8,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from browser_use_agent.api.auth import accept_websocket_identity
 from browser_use_agent.api.csrf import check_websocket_origin
@@ -27,7 +27,7 @@ DEFAULT_REPLAY_LIMIT = 200
 MAX_REPLAY_LIMIT = 500
 
 
-def _session_factory(websocket: WebSocket) -> sessionmaker[Session]:
+def _session_factory(websocket: WebSocket) -> async_sessionmaker[AsyncSession]:
     """Return the app session factory or raise if DB is not configured.
 
     Args:
@@ -39,14 +39,16 @@ def _session_factory(websocket: WebSocket) -> sessionmaker[Session]:
     Raises:
         RuntimeError: When the app has no database engine.
     """
-    factory: sessionmaker[Session] | None = getattr(websocket.app.state, "session_factory", None)
+    factory: async_sessionmaker[AsyncSession] | None = getattr(
+        websocket.app.state, "async_session_factory", None
+    )
     if factory is None:
         raise RuntimeError("Database is not configured; set DATABASE_HOST and related vars")
     return factory
 
 
-def _load_replay_events(
-    session: Session,
+async def _load_replay_events(
+    session: AsyncSession,
     run_id: uuid.UUID,
     *,
     after_seq: int,
@@ -69,7 +71,7 @@ def _load_replay_events(
         .order_by(AgentEvent.seq.asc())
         .limit(limit)
     )
-    return list(session.scalars(stmt).all())
+    return list((await session.scalars(stmt)).all())
 
 
 @router.websocket("/api/runs/{run_id}/events")
@@ -110,7 +112,7 @@ async def run_events_ws(
 
     session = factory()
     try:
-        run = session.get(Run, run_id)
+        run = await session.get(Run, run_id)
         if run is None:
             await websocket.send_json(
                 RunEventMessage(
@@ -123,9 +125,9 @@ async def run_events_ws(
             bus.unsubscribe(run_id, queue)
             return
 
-        replay = _load_replay_events(session, run_id, after_seq=after_seq, limit=replay_limit)
+        replay = await _load_replay_events(session, run_id, after_seq=after_seq, limit=replay_limit)
     finally:
-        session.close()
+        await session.close()
 
     try:
         await websocket.send_json(

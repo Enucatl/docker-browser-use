@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import sys
@@ -53,7 +54,7 @@ class JevReplayReport:
         return asdict(self)
 
 
-def replay_checkpoint(
+async def replay_checkpoint(
     checkpoint: bytes | bytearray | Path | str | dict[str, Any],
     *,
     run_id: uuid.UUID | str,
@@ -104,7 +105,7 @@ def replay_checkpoint(
     )
     adapter = JevAdapter(model=model)
     request = adapter.to_jev_request(observation, recorded_goal, recorded_history)
-    response = client.decide(request)
+    response = await client.decide(request)
     action = adapter.from_jev_response(response, observation=observation)
     original = (
         historical_decision if historical_decision is not None else _original_decision(payload)
@@ -136,7 +137,7 @@ def render_markdown(report: JevReplayReport) -> str:
     return "| Field | Value |\n| --- | --- |\n" + rows + "\n"
 
 
-def main(argv: list[str] | None = None) -> int:
+async def _main(argv: list[str] | None = None) -> int:
     """Run the ``evaluate-jev`` command."""
     parser = argparse.ArgumentParser(description="Replay a recorded Jev checkpoint offline.")
     parser.add_argument("--run-id", required=True, help="Expected checkpoint run UUID.")
@@ -152,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
         payload, _ = _load_checkpoint(args.checkpoint)
         db_goal, db_decision = _load_run_context(payload, args.run_id)
         client = _client_for_label(args.client, payload)
-        report = replay_checkpoint(
+        report = await replay_checkpoint(
             args.checkpoint,
             run_id=args.run_id,
             client=client,
@@ -176,6 +177,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"evaluate-jev: {exc}", file=sys.stderr)
         return 2
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the async ``evaluate-jev`` command from a process boundary."""
+    return asyncio.run(_main(argv))
 
 
 def _load_checkpoint(

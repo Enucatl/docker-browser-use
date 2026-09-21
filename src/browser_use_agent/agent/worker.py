@@ -9,7 +9,9 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from browser_use_agent.agent.approvals import (
@@ -31,6 +33,13 @@ from browser_use_agent.agent.loop import (
     ScreenshotHookWithReason,
 )
 from browser_use_agent.agent.takeover import wrap_browser_for_takeover
+from browser_use_agent.audit.async_writers import (
+    AsyncAuditWriter,
+    AsyncBrowserActionWriter,
+    AsyncCheckpointWriter,
+    AsyncModelCallWriter,
+    AsyncScreenshotWriter,
+)
 from browser_use_agent.audit.browser_actions import BrowserActionWriter
 from browser_use_agent.audit.checkpoints import CheckpointWriter, load_checkpoint_settings
 from browser_use_agent.audit.model_calls import ModelCallWriter
@@ -57,7 +66,7 @@ from browser_use_agent.telemetry.otel import Telemetry, get_telemetry
 
 logger = logging.getLogger(__name__)
 
-SessionFactory = Callable[[], Session]
+SessionFactory = Callable[[], Session | AsyncSession]
 JevFactory = Callable[[], JevClient]
 TextLLMFactory = Callable[[], TextLLMClient | None]
 
@@ -167,7 +176,7 @@ class RunWorker:
         browser_manager: BrowserSessionManager | None = None,
         jev_factory: JevFactory | None = None,
         text_llm_factory: TextLLMFactory | None = None,
-        browser_port_factory: Callable[[uuid.UUID, Session], BrowserPort] | None = None,
+        browser_port_factory: Callable[[uuid.UUID, Any], BrowserPort] | None = None,
         needs_approval: NeedsApprovalHook | None = None,
         checkpoint: CheckpointHook | CheckpointHookWithReason | None = None,
         screenshot: ScreenshotHook | ScreenshotHookWithReason | None = None,
@@ -238,8 +247,15 @@ class RunWorker:
                 return existing
 
             session = self.session_factory()
+            use_async = isinstance(session, AsyncSession)
             try:
-                run = get_run(session, run_id)
+                run = (
+                    await session.get(Run, run_id)
+                    if use_async
+                    else get_run(session, run_id)
+                )
+                if run is None:
+                    raise RuntimeError(f"run {run_id} does not exist")
                 try:
                     status = RunStatus(run.status)
                 except ValueError as exc:
@@ -251,9 +267,17 @@ class RunWorker:
                     run.status = RunStatus.RUNNING.value
                     run.started_at = run.started_at or now
                     run.updated_at = now
-                    session.commit()
+                    if use_async:
+                        await session.commit()
+                    else:
+                        session.commit()
             finally:
-                session.close()
+                if use_async:
+                    await session.close()
+                else:
+                    session.close()
+
+            self._uses_async_sessions = use_async
 
             task = asyncio.create_task(self._guarded_run(run_id), name=f"run-worker-{run_id}")
             self._tasks[run_id] = task
@@ -283,7 +307,224 @@ class RunWorker:
         """
         async with self._semaphore:
             with self.telemetry.span("run", run_id=run_id):
+                if getattr(self, "_uses_async_sessions", False):
+                    return await self._execute_async_run(run_id)
                 return await self._execute_run(run_id)
+
+    async def _execute_async_run(self, run_id: uuid.UUID) -> LoopOutcome:
+        """Run one agent using AsyncSession for every controller DB operation."""
+        session = self.session_factory()
+        if not isinstance(session, AsyncSession):
+            raise TypeError("async worker requires an AsyncSession factory")
+        browser_held = False
+        try:
+            run = await session.get(Run, run_id)
+            if run is None:
+                raise RuntimeError(f"run {run_id} does not exist")
+            goal = run.goal
+            profile_id = run.profile_id
+            store = _optional_artifact_store()
+            audit = AsyncAuditWriter(session)
+            model_calls = AsyncModelCallWriter(session, artifact_store=store)
+            browser_actions = AsyncBrowserActionWriter(session)
+
+            if self.browser_port_factory is not None:
+                browser = self.browser_port_factory(run_id, session)
+            else:
+                if self.browser_manager is None:
+                    raise RuntimeError("RunWorker requires browser_manager or browser_port_factory")
+                bu_session = await self.browser_manager.acquire_for_run(
+                    run_id,
+                    profile_name=profile_id,
+                    db_session=session,
+                )
+                await session.commit()
+                browser_held = True
+                browser = BrowserUsePort(bu_session)
+
+            async def read_status() -> Run | None:
+                async with self.session_factory() as check:
+                    return await check.get(Run, run_id)
+
+            async def is_cancelled() -> bool:
+                row = await read_status()
+                return row is None or row.status == RunStatus.CANCELLED.value
+
+            async def is_paused() -> bool:
+                row = await read_status()
+                return row is not None and row.status == RunStatus.PAUSED.value
+
+            async def is_awaiting_human() -> bool:
+                row = await read_status()
+                return row is not None and row.status == RunStatus.AWAITING_HUMAN.value
+
+            async def set_status(status: RunStatus) -> None:
+                row = await session.get(Run, run_id)
+                if row is None:
+                    return
+                if row.status in {
+                    RunStatus.CANCELLED.value,
+                    RunStatus.AWAITING_HUMAN.value,
+                }:
+                    return
+                now = datetime.now(UTC)
+                row.status = status.value
+                row.updated_at = now
+                if status in TERMINAL_STATUSES:
+                    row.finished_at = now
+                await session.commit()
+
+            def approval_metadata(request: ApprovalRequest) -> dict[str, Any]:
+                return {
+                    "kind": request.action_kind.value,
+                    "target_index": request.target_index,
+                    "reason_code": request.reason_code,
+                    "policy_id": request.policy_id,
+                    **request.metadata,
+                }
+
+            async def on_approval_requested(
+                request: ApprovalRequest,
+                event_id: uuid.UUID,
+            ) -> uuid.UUID | None:
+                row = await session.run_sync(
+                    lambda sync: approval_service.create_pending_approval(
+                        sync,
+                        run_id,
+                        event_id=event_id,
+                        reason=request.reason,
+                        metadata=approval_metadata(request),
+                    )
+                )
+                await session.commit()
+                return row.id
+
+            async def on_approval_finalized(
+                approval_id: uuid.UUID | None,
+                _reason: str,
+            ) -> None:
+                await session.run_sync(
+                    lambda sync: approval_service.mark_approval_timed_out(
+                        sync,
+                        run_id,
+                        approval_id=approval_id,
+                    )
+                )
+                await session.commit()
+
+            signals = get_control_hub().signals_for(run_id)
+            try:
+                signals.bind_loop(asyncio.get_running_loop())
+            except RuntimeError:
+                pass
+
+            checkpoint = self.checkpoint
+            if checkpoint is None and self._auto_checkpoint and store is not None:
+                settings = load_checkpoint_settings()
+                if settings.enabled:
+                    checkpoint = AsyncCheckpointWriter(session, store, settings=settings)
+
+            screenshot = self.screenshot
+            if screenshot is None and self._auto_screenshot and store is not None:
+                settings = load_screenshot_settings()
+                if settings.enabled:
+                    screenshot = AsyncScreenshotWriter(
+                        session,
+                        store,
+                        capture=browser.screenshot,
+                        settings=settings,
+                    )
+
+            loop = AgentLoop(
+                run_id=run_id,
+                goal=goal,
+                browser=wrap_browser_for_takeover(browser, is_awaiting_human),
+                jev=self.jev_factory(),
+                text_llm=self.text_llm_factory(),
+                audit=audit,
+                model_calls=model_calls,
+                browser_actions=browser_actions,
+                adapter=self.adapter,
+                max_steps=self.settings.max_steps,
+                needs_approval=self.needs_approval,
+                approval_timeout_seconds=self._approval_settings.timeout_seconds,
+                set_status=set_status,
+                on_approval_requested=on_approval_requested,
+                on_approval_finalized=on_approval_finalized,
+                checkpoint=checkpoint,
+                screenshot=screenshot,
+                is_cancelled=is_cancelled,
+                is_paused=is_paused,
+                is_awaiting_human=is_awaiting_human,
+                control_signals=signals,
+                consume_step_retry=signals.consume_step_retry,
+                commit=session.commit,
+                telemetry=self.telemetry,
+            )
+            outcome = await loop.run()
+            await self._persist_async_outcome(session, run_id, outcome)
+            get_control_hub().discard(run_id)
+            return outcome
+        except Exception as exc:
+            logger.exception("Run %s aborted", run_id)
+            try:
+                await AsyncAuditWriter(session).append(
+                    run_id,
+                    "run_failed",
+                    {"error": f"{type(exc).__name__}: {exc}"},
+                    actor="system",
+                )
+                await self._persist_async_outcome(
+                    session,
+                    run_id,
+                    LoopOutcome(status=RunStatus.FAILED, message=str(exc)),
+                )
+            except Exception:
+                await session.rollback()
+                logger.exception("Failed to persist abort status for run %s", run_id)
+            get_control_hub().discard(run_id)
+            raise
+        finally:
+            if browser_held and self.browser_manager is not None:
+                try:
+                    await self.browser_manager.release(run_id, db_session=session)
+                    await session.commit()
+                except Exception:
+                    logger.exception("Failed to release browser for run %s", run_id)
+            await session.close()
+
+    async def _persist_async_outcome(
+        self,
+        session: AsyncSession,
+        run_id: uuid.UUID,
+        outcome: LoopOutcome,
+    ) -> None:
+        """Persist a loop outcome without blocking the event loop."""
+        run = await session.get(Run, run_id)
+        if run is None:
+            return
+        if run.status == RunStatus.CANCELLED.value and outcome.status != RunStatus.CANCELLED:
+            await session.commit()
+            return
+        if run.status == RunStatus.PAUSED.value and outcome.status == RunStatus.RUNNING:
+            await session.commit()
+            return
+        if run.status == RunStatus.AWAITING_HUMAN.value and outcome.status == RunStatus.RUNNING:
+            await session.commit()
+            return
+        if (
+            run.status == RunStatus.FAILED.value
+            and outcome.status == RunStatus.FAILED
+            and run.finished_at is not None
+        ):
+            await session.commit()
+            return
+        now = datetime.now(UTC)
+        run.status = outcome.status.value
+        run.updated_at = now
+        if outcome.status in TERMINAL_STATUSES:
+            run.finished_at = now
+        await session.commit()
 
     async def _execute_run(self, run_id: uuid.UUID) -> LoopOutcome:
         """Acquire browser (optional), run the loop, persist terminal status.

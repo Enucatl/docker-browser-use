@@ -147,7 +147,7 @@ class TextLLMClient(ABC):
     """Abstract small-text generative client used only for ``TYPE_TEXT``."""
 
     @abstractmethod
-    def complete_type_text(self, prompt: TextLLMPrompt) -> TextLLMResult:
+    async def complete_type_text(self, prompt: TextLLMPrompt) -> TextLLMResult:
         """Propose text to type given a redacted prompt.
 
         Args:
@@ -177,7 +177,7 @@ class FakeTextLLMClient(TextLLMClient):
     fail_with: str | None = None
     model: str = "fake-text-llm"
 
-    def complete_type_text(self, prompt: TextLLMPrompt) -> TextLLMResult:
+    async def complete_type_text(self, prompt: TextLLMPrompt) -> TextLLMResult:
         """Return the next scripted string (or raise).
 
         Args:
@@ -226,11 +226,11 @@ class FakeTextLLMClient(TextLLMClient):
 
 
 class OpenAICompatibleTextLLMClient(TextLLMClient):
-    """Sync OpenAI-compatible ``/chat/completions`` client via ``niquests``.
+    """OpenAI-compatible ``/chat/completions`` client.
 
     Homelab note: endpoints such as OpenRouter or a local ``shared-inference``
     peer speak the same wire shape. This adapter stays thin and does not import
-    ``shared_inference``.
+    ``shared_inference``. It uses ``niquests``' async API.
     """
 
     def __init__(self, settings: TextLLMSettings | None = None) -> None:
@@ -241,7 +241,7 @@ class OpenAICompatibleTextLLMClient(TextLLMClient):
         """
         self.settings = settings if settings is not None else load_text_llm_settings()
 
-    def complete_type_text(self, prompt: TextLLMPrompt) -> TextLLMResult:
+    async def complete_type_text(self, prompt: TextLLMPrompt) -> TextLLMResult:
         """POST a chat completion and return cleaned typeable text.
 
         Args:
@@ -292,7 +292,7 @@ class OpenAICompatibleTextLLMClient(TextLLMClient):
 
         started = time.perf_counter()
         try:
-            response = niquests.post(
+            response = await niquests.apost(
                 url,
                 json=payload,
                 headers=headers,
@@ -313,45 +313,57 @@ class OpenAICompatibleTextLLMClient(TextLLMClient):
         except Exception as exc:
             raise TextLLMError(f"Text LLM response parse failed: {exc}") from exc
 
-        cleaned = _clean_type_text(content)
-        if not cleaned:
-            raise TextLLMError("Text LLM returned empty typeable text")
-
-        usage = data.get("usage") if isinstance(data, Mapping) else None
-        prompt_tokens = None
-        completion_tokens = None
-        if isinstance(usage, Mapping):
-            prompt_tokens = _optional_int(usage.get("prompt_tokens"))
-            completion_tokens = _optional_int(usage.get("completion_tokens"))
-
-        response_meta = _redact_mapping(
-            {
-                "call_kind": "text_llm",
-                "provider": "openai-compatible",
-                "model": data.get("model", self.settings.model)
-                if isinstance(data, Mapping)
-                else self.settings.model,
-                "content": cleaned,
-                "raw_content": content,
-                "usage": usage if isinstance(usage, Mapping) else {},
-                "id": data.get("id") if isinstance(data, Mapping) else None,
-            }
-        )
-        model_name = (
-            str(data.get("model") or self.settings.model)
-            if isinstance(data, Mapping)
-            else self.settings.model
-        )
-        return TextLLMResult(
-            text=cleaned,
-            model=model_name,
-            latency_ms=latency_ms,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
+        return _text_llm_result(
+            data,
+            content=content,
             request_meta=request_meta,
-            response_meta=response_meta,
-            raw_content=content,
+            model=self.settings.model,
+            latency_ms=latency_ms,
         )
+
+
+def _text_llm_result(
+    data: Any,
+    *,
+    content: str,
+    request_meta: dict[str, Any],
+    model: str,
+    latency_ms: int,
+) -> TextLLMResult:
+    """Build a normalized result from an OpenAI-compatible response."""
+    cleaned = _clean_type_text(content)
+    if not cleaned:
+        raise TextLLMError("Text LLM returned empty typeable text")
+
+    usage = data.get("usage") if isinstance(data, Mapping) else None
+    prompt_tokens = (
+        _optional_int(usage.get("prompt_tokens")) if isinstance(usage, Mapping) else None
+    )
+    completion_tokens = (
+        _optional_int(usage.get("completion_tokens")) if isinstance(usage, Mapping) else None
+    )
+    response_meta = _redact_mapping(
+        {
+            "call_kind": "text_llm",
+            "provider": "openai-compatible",
+            "model": data.get("model", model) if isinstance(data, Mapping) else model,
+            "content": cleaned,
+            "raw_content": content,
+            "usage": usage if isinstance(usage, Mapping) else {},
+            "id": data.get("id") if isinstance(data, Mapping) else None,
+        }
+    )
+    model_name = str(data.get("model") or model) if isinstance(data, Mapping) else model
+    return TextLLMResult(
+        text=cleaned,
+        model=model_name,
+        latency_ms=latency_ms,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        request_meta=request_meta,
+        response_meta=response_meta,
+        raw_content=content,
+    )
 
 
 def build_type_text_prompt(
@@ -434,7 +446,7 @@ def build_type_text_prompt(
     return TextLLMPrompt(system=system, user=user, messages=messages, meta=meta)
 
 
-def maybe_fill_type_text(
+async def maybe_fill_type_text(
     action: AgentAction,
     *,
     goal: str,
@@ -473,7 +485,7 @@ def maybe_fill_type_text(
         target = observation.candidate_by_index(action.target_index)
 
     prompt = build_type_text_prompt(goal=goal, observation=observation, target=target)
-    result = client.complete_type_text(prompt)
+    result = await client.complete_type_text(prompt)
     if not result.text:
         raise TextLLMError("Text LLM returned empty typeable text")
     action.params.text = result.text

@@ -254,7 +254,7 @@ class JevClient(ABC):
     """Abstract Jev decision client."""
 
     @abstractmethod
-    def decide(self, request: JevRequest) -> JevResponse:
+    async def decide(self, request: JevRequest) -> JevResponse:
         """Send a decision request and return the typed response.
 
         Args:
@@ -323,7 +323,7 @@ class FakeJevClient(JevClient):
         self._cursor = 0
         self.calls.clear()
 
-    def decide(self, request: JevRequest) -> JevResponse:
+    async def decide(self, request: JevRequest) -> JevResponse:
         """Return the next scripted decision as a Jev-shaped response.
 
         Args:
@@ -424,8 +424,8 @@ class FakeJevClient(JevClient):
 class HttpJevClient(JevClient):
     """Live HTTP client against the assumed Jev Decision API.
 
-    Uses ``niquests`` when available; raises :class:`JevClientNotConfiguredError`
-    when no API key is configured. Kept thin so T015/T032 can swap endpoints.
+    Uses the asynchronous ``niquests`` API. Raises
+    :class:`JevClientNotConfiguredError` when no API key is configured.
     """
 
     def __init__(self, settings: JevClientSettings | None = None) -> None:
@@ -436,8 +436,8 @@ class HttpJevClient(JevClient):
         """
         self.settings = settings if settings is not None else load_jev_client_settings()
 
-    def decide(self, request: JevRequest) -> JevResponse:
-        """POST the request to the configured Jev endpoint.
+    async def decide(self, request: JevRequest) -> JevResponse:
+        """POST the request using a non-blocking HTTP client.
 
         Args:
             request: Adapter-built request.
@@ -450,12 +450,10 @@ class HttpJevClient(JevClient):
             JevClientError: On HTTP or parse failures.
         """
         if not self.settings.api_key:
-            raise JevClientNotConfiguredError(
-                "JEV_API_KEY_FILE is not configured",
-            )
+            raise JevClientNotConfiguredError("JEV_API_KEY_FILE is not configured")
         try:
             import niquests
-        except ImportError as exc:  # pragma: no cover - optional until dependency added
+        except ImportError as exc:  # pragma: no cover - dependency declared in pyproject
             raise JevClientError(
                 "niquests is required for HttpJevClient; use FakeJevClient in tests",
             ) from exc
@@ -463,10 +461,9 @@ class HttpJevClient(JevClient):
         payload = request.model_dump(mode="json")
         if not payload.get("model"):
             payload["model"] = self.settings.model
-
         url = f"{self.settings.base_url}/v1/systemone"
         try:
-            response = niquests.post(
+            response = await niquests.apost(
                 url,
                 json=payload,
                 headers={

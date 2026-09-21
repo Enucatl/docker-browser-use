@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -150,7 +151,7 @@ def test_jev_request_rejects_secret_keys_in_state() -> None:
         )
 
 
-def test_empty_candidates_drops_targeted_ops_and_fake_done() -> None:
+async def test_empty_candidates_drops_targeted_ops_and_fake_done() -> None:
     """Empty candidates omit CLICK/TYPE; fake client returns DONE when script ends."""
     adapter = JevAdapter()
     obs = _sample_observation(empty=True)
@@ -162,7 +163,7 @@ def test_empty_candidates_drops_targeted_ops_and_fake_done() -> None:
     assert "click_target" not in req.questions
 
     client = FakeJevClient(script=[])
-    resp = client.decide(req)
+    resp = await client.decide(req)
     action = adapter.from_jev_response(resp, observation=obs)
     assert action.kind == ActionKind.DONE
     assert action.confidence == pytest.approx(0.99)
@@ -200,7 +201,7 @@ def test_navigation_is_not_advertised_without_a_url() -> None:
     assert "navigate_url" not in req.questions
 
 
-def test_fake_client_click_preserves_confidence_and_probabilities() -> None:
+async def test_fake_client_click_preserves_confidence_and_probabilities() -> None:
     """Fake Jev drives a CLICK decision with audit-ready confidence fields."""
     adapter = JevAdapter()
     obs = _sample_observation()
@@ -217,7 +218,7 @@ def test_fake_client_click_preserves_confidence_and_probabilities() -> None:
             )
         ]
     )
-    resp = client.decide(req)
+    resp = await client.decide(req)
     action = adapter.from_jev_response(resp, observation=obs)
     assert action.kind == ActionKind.CLICK
     assert action.target_index == 2
@@ -229,7 +230,7 @@ def test_fake_client_click_preserves_confidence_and_probabilities() -> None:
     assert action.raw_answers
 
 
-def test_low_confidence_decision_still_maps() -> None:
+async def test_low_confidence_decision_still_maps() -> None:
     """Low confidence is preserved; adapter does not raise."""
     adapter = JevAdapter(low_confidence_threshold=0.5)
     obs = _sample_observation()
@@ -244,13 +245,13 @@ def test_low_confidence_decision_still_maps() -> None:
             )
         ]
     )
-    action = adapter.from_jev_response(client.decide(req), observation=obs)
+    action = adapter.from_jev_response(await client.decide(req), observation=obs)
     assert action.confidence == pytest.approx(0.22)
     assert adapter.is_low_confidence(action)
     assert action.alternatives[0] == "DONE"
 
 
-def test_done_and_scroll_and_navigate_mapping() -> None:
+async def test_done_and_scroll_and_navigate_mapping() -> None:
     """DONE / SCROLL / NAVIGATE map params without requiring element targets."""
     adapter = JevAdapter()
     obs = _sample_observation()
@@ -267,16 +268,16 @@ def test_done_and_scroll_and_navigate_mapping() -> None:
             ),
         ]
     )
-    done = adapter.from_jev_response(client.decide(req), observation=obs)
+    done = adapter.from_jev_response(await client.decide(req), observation=obs)
     assert done.kind == ActionKind.DONE
     assert done.params.message == "all good"
     assert done.target_index is None
 
-    scroll = adapter.from_jev_response(client.decide(req), observation=obs)
+    scroll = adapter.from_jev_response(await client.decide(req), observation=obs)
     assert scroll.kind == ActionKind.SCROLL
     assert scroll.params.direction == ScrollDirection.UP
 
-    nav = adapter.from_jev_response(client.decide(req), observation=obs)
+    nav = adapter.from_jev_response(await client.decide(req), observation=obs)
     assert nav.kind == ActionKind.NAVIGATE
     assert nav.params.url == "https://example.test/app"
 
@@ -408,11 +409,11 @@ def test_modal_controls_and_popup_tabs_are_visible_to_jev() -> None:
     assert action.params.tab_id == "opup"
 
 
-def test_http_client_requires_api_key() -> None:
+async def test_http_client_requires_api_key() -> None:
     """Live client refuses to call without credentials."""
     client = HttpJevClient(settings=JevClientSettings(api_key=None))
     with pytest.raises(JevClientNotConfiguredError):
-        client.decide(
+        await client.decide(
             JevRequest(
                 state={"goal": "x"},
                 questions={
@@ -424,6 +425,35 @@ def test_http_client_requires_api_key() -> None:
                 },
             )
         )
+
+
+async def test_http_client_posts_with_niquests() -> None:
+    """Async Jev calls use niquests without the sync convenience function."""
+    client = HttpJevClient(
+        settings=JevClientSettings(api_key="jv-test", base_url="http://jev.test"),
+    )
+    request = JevRequest(
+        state={"goal": "x"},
+        questions={
+            "operation": {
+                "type": "choice",
+                "instructions": "pick",
+                "criteria": {"DONE": "done"},
+            }
+        },
+    )
+    response = MagicMock()
+    response.json.return_value = {
+        "model": "jev-test",
+        "answers": {"operation": {"type": "choice", "choice": "DONE"}},
+    }
+    with patch("niquests.apost", new_callable=AsyncMock) as post:
+        post.return_value = response
+        result = await client.decide(request)
+
+    assert result.model == "jev-test"
+    post.assert_awaited_once()
+    assert post.await_args.kwargs["headers"]["Authorization"] == "Bearer jv-test"
 
 
 def test_criteria_label_caps_length() -> None:

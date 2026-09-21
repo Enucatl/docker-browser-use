@@ -338,7 +338,9 @@ async def wait_for_approval_decision(
     """
 
     async def _call(fn: StatusCheck) -> bool:
-        result = fn()
+        # Status checks use synchronous SQLAlchemy sessions in the worker.
+        # Keep a slow query from freezing Uvicorn while the gate is parked.
+        result = await asyncio.to_thread(fn)
         if isinstance(result, Awaitable):
             return bool(await result)
         return bool(result)

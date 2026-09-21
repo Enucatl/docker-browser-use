@@ -12,9 +12,9 @@ FIXTURE = Path(__file__).parent / "fixtures" / "sample_checkpoint.json.zst"
 RUN_ID = "11111111-1111-4111-8111-111111111111"
 
 
-def test_replay_fixture_is_offline_and_matches_original() -> None:
+async def test_replay_fixture_is_offline_and_matches_original() -> None:
     """A compressed fixture replays through the fake client without a network."""
-    report = replay_checkpoint(
+    report = await replay_checkpoint(
         FIXTURE,
         run_id=RUN_ID,
         client=FakeJevClient([FakeDecision(operation="CLICK", target_key="1", confidence=0.91)]),

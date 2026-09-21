@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -121,11 +120,11 @@ def _form_obs() -> BrowserObservation:
     )
 
 
-def test_non_type_text_never_calls_text_llm() -> None:
+async def test_non_type_text_never_calls_text_llm() -> None:
     """CLICK / DONE never invoke the text LLM client."""
     client = FakeTextLLMClient(texts=("should-not-appear",))
     action = AgentAction(kind=ActionKind.CLICK, target_index=1)
-    result = maybe_fill_type_text(
+    result = await maybe_fill_type_text(
         action,
         goal="click submit",
         observation=_form_obs(),
@@ -136,7 +135,7 @@ def test_non_type_text_never_calls_text_llm() -> None:
     assert action.params.text is None
 
 
-def test_type_text_with_existing_text_skips_llm() -> None:
+async def test_type_text_with_existing_text_skips_llm() -> None:
     """Pre-filled TYPE_TEXT params skip the LLM."""
     client = FakeTextLLMClient(texts=("ignored",))
     action = AgentAction(
@@ -144,7 +143,7 @@ def test_type_text_with_existing_text_skips_llm() -> None:
         target_index=2,
         params=ActionParams(text="already-set"),
     )
-    result = maybe_fill_type_text(
+    result = await maybe_fill_type_text(
         action,
         goal="type query",
         observation=_form_obs(),
@@ -155,11 +154,11 @@ def test_type_text_with_existing_text_skips_llm() -> None:
     assert action.params.text == "already-set"
 
 
-def test_fake_client_fills_type_text() -> None:
+async def test_fake_client_fills_type_text() -> None:
     """Fake client proposes text and mutates the action."""
     client = FakeTextLLMClient(texts=("invoice March 2026",))
     action = AgentAction(kind=ActionKind.TYPE_TEXT, target_index=2)
-    result = maybe_fill_type_text(
+    result = await maybe_fill_type_text(
         action,
         goal="Enter the invoice month",
         observation=_form_obs(),
@@ -191,7 +190,7 @@ def test_prompts_are_redacted() -> None:
     assert REDACTED in str(prompt.meta.get("goal", "")) or REDACTED in prompt.user
 
 
-def test_password_field_rejected() -> None:
+async def test_password_field_rejected() -> None:
     """Password fields must not go through the text LLM."""
     obs = BrowserObservation(
         url="https://example.com/login",
@@ -208,7 +207,7 @@ def test_password_field_rejected() -> None:
     )
     action = AgentAction(kind=ActionKind.TYPE_TEXT, target_index=4)
     with pytest.raises(TextLLMError, match="Bitwarden"):
-        maybe_fill_type_text(
+        await maybe_fill_type_text(
             action,
             goal="log in",
             observation=obs,
@@ -216,11 +215,11 @@ def test_password_field_rejected() -> None:
         )
 
 
-def test_missing_client_fails_closed() -> None:
+async def test_missing_client_fails_closed() -> None:
     """TYPE_TEXT without a client and without text raises."""
     action = AgentAction(kind=ActionKind.TYPE_TEXT, target_index=2)
     with pytest.raises(TextLLMError, match="not configured"):
-        maybe_fill_type_text(
+        await maybe_fill_type_text(
             action,
             goal="type",
             observation=_form_obs(),
@@ -228,7 +227,7 @@ def test_missing_client_fails_closed() -> None:
         )
 
 
-def test_agent_loop_type_text_uses_fake_llm() -> None:
+async def test_agent_loop_type_text_uses_fake_llm() -> None:
     """Loop fills TYPE_TEXT via FakeTextLLMClient and audits the model call."""
 
     async def _run() -> None:
@@ -263,10 +262,10 @@ def test_agent_loop_type_text_uses_fake_llm() -> None:
         # Ensure non-TYPE_TEXT path did not add extra LLM calls on DONE.
         assert len(text_llm.calls) == 1
 
-    asyncio.run(_run())
+    await _run()
 
 
-def test_agent_loop_click_never_calls_text_llm() -> None:
+async def test_agent_loop_click_never_calls_text_llm() -> None:
     """CLICK decisions leave the text LLM untouched."""
 
     async def _run() -> None:
@@ -302,10 +301,10 @@ def test_agent_loop_click_never_calls_text_llm() -> None:
         assert text_llm.calls == []
         assert "model_call" not in audit.types()
 
-    asyncio.run(_run())
+    await _run()
 
 
-def test_agent_loop_text_llm_failure_audited() -> None:
+async def test_agent_loop_text_llm_failure_audited() -> None:
     """Text LLM failures surface as run errors with model_call_failed audit."""
 
     async def _run() -> None:
@@ -332,7 +331,7 @@ def test_agent_loop_text_llm_failure_audited() -> None:
         assert "run_failed" in audit.types()
         assert browser.executed == []
 
-    asyncio.run(_run())
+    await _run()
 
 
 def test_load_text_llm_settings_from_file(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -359,7 +358,7 @@ def test_load_text_llm_settings_ignores_bare_api_key(monkeypatch: pytest.MonkeyP
     assert load_text_llm_settings().api_key is None
 
 
-def test_openai_compatible_client_posts_chat_completions() -> None:
+async def test_openai_compatible_client_posts_chat_completions() -> None:
     """Live adapter posts to /chat/completions via niquests (mocked)."""
     settings = TextLLMSettings(
         base_url="http://llm.test/v1",
@@ -382,19 +381,20 @@ def test_openai_compatible_client_posts_chat_completions() -> None:
         "usage": {"prompt_tokens": 10, "completion_tokens": 1},
     }
 
-    with patch("niquests.post", return_value=mock_response) as post:
-        result = client.complete_type_text(prompt)
+    with patch("niquests.apost", new_callable=AsyncMock) as post:
+        post.return_value = mock_response
+        result = await client.complete_type_text(prompt)
 
     assert result.text == "cats"
     assert result.prompt_tokens == 10
-    post.assert_called_once()
-    args, kwargs = post.call_args
+    post.assert_awaited_once()
+    args, kwargs = post.await_args.args, post.await_args.kwargs
     assert args[0] == "http://llm.test/v1/chat/completions"
     assert kwargs["json"]["max_tokens"] == 16
     assert kwargs["headers"]["Authorization"] == "Bearer sk-test"
 
 
-def test_openai_compatible_requires_api_key() -> None:
+async def test_openai_compatible_requires_api_key() -> None:
     """Missing API key fails closed before HTTP."""
     client = OpenAICompatibleTextLLMClient(
         TextLLMSettings(api_key=None, base_url="http://llm.test/v1"),
@@ -405,4 +405,4 @@ def test_openai_compatible_requires_api_key() -> None:
         target=_form_obs().candidates[1],
     )
     with pytest.raises(TextLLMError, match="TEXT_LLM_API_KEY"):
-        client.complete_type_text(prompt)
+        await client.complete_type_text(prompt)

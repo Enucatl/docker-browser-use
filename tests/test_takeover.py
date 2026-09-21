@@ -111,7 +111,7 @@ def _obs(*, url: str = "https://example.com/") -> BrowserObservation:
     )
 
 
-def test_guarded_port_refuses_execute_while_held() -> None:
+async def test_guarded_port_refuses_execute_while_held() -> None:
     """Fake executor must not record click/type while takeover is active."""
 
     async def _run() -> None:
@@ -132,10 +132,10 @@ def test_guarded_port_refuses_execute_while_held() -> None:
         assert len(inner.executed) == 1
         assert inner.executed[0].kind == ActionKind.CLICK
 
-    asyncio.run(_run())
+    await _run()
 
 
-def test_takeover_blocks_agent_actions_until_release() -> None:
+async def test_takeover_blocks_agent_actions_until_release() -> None:
     """While awaiting_human, the loop parks and executes no further actions."""
 
     async def _run() -> None:
@@ -206,10 +206,10 @@ def test_takeover_blocks_agent_actions_until_release() -> None:
         assert len(inner.executed) == 3
         assert inner.executed[-1].kind == ActionKind.DONE
 
-    asyncio.run(_run())
+    await _run()
 
 
-def test_release_after_mid_step_takeover_does_fresh_observe() -> None:
+async def test_release_after_mid_step_takeover_does_fresh_observe() -> None:
     """Release mid-step discards the stale decide and re-observes."""
 
     async def _run() -> None:
@@ -248,9 +248,9 @@ def test_release_after_mid_step_takeover_does_fresh_observe() -> None:
         class _TakeoverOnFirstDecide:
             """Arm human control immediately after the first Jev decision."""
 
-            def decide(self, request):
+            async def decide(self, request):
                 nonlocal awaiting_human, decide_count
-                response = base_jev.decide(request)
+                response = await base_jev.decide(request)
                 decide_count += 1
                 if decide_count == 1:
                     awaiting_human = True
@@ -293,7 +293,7 @@ def test_release_after_mid_step_takeover_does_fresh_observe() -> None:
         # Stale SCROLL must not have executed; only DONE.
         assert [a.kind for a in inner.executed] == [ActionKind.DONE]
 
-    asyncio.run(_run())
+    await _run()
 
 
 def _docker_available() -> bool:

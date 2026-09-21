@@ -206,7 +206,7 @@ confidence_below = 0.9
     assert money.reason_code == "impact.money_keyword"
 
 
-def test_approve_allows_execute_reject_fails_closed() -> None:
+async def test_approve_allows_execute_reject_fails_closed() -> None:
     """Approve continues execute; reject fails without executing the action."""
 
     async def _approve() -> None:
@@ -307,11 +307,11 @@ def test_approve_allows_execute_reject_fails_closed() -> None:
         assert "action_requested" not in audit.types()
         assert browser.executed == []
 
-    asyncio.run(_approve())
-    asyncio.run(_reject())
+    await _approve()
+    await _reject()
 
 
-def test_approval_timeout_fails_closed() -> None:
+async def test_approval_timeout_fails_closed() -> None:
     """Timeout without a human decision fails the run and skips execute."""
 
     async def _run() -> None:
@@ -350,10 +350,10 @@ def test_approval_timeout_fails_closed() -> None:
         assert "approval_timeout" in audit.types()
         assert browser.executed == []
 
-    asyncio.run(_run())
+    await _run()
 
 
-def test_wait_for_approval_decision_cancel() -> None:
+async def test_wait_for_approval_decision_cancel() -> None:
     """Cancel during an approval wait returns cancelled."""
 
     async def _run() -> None:
@@ -378,7 +378,49 @@ def test_wait_for_approval_decision_cancel() -> None:
         await task
         assert decision == "cancelled"
 
-    asyncio.run(_run())
+    await _run()
+
+
+async def test_wait_for_approval_decision_does_not_block_event_loop() -> None:
+    """A slow synchronous status check cannot freeze other asyncio tasks."""
+
+    async def _run() -> None:
+        reset_control_hub_for_tests()
+        run_id = uuid.uuid4()
+        signals = get_control_hub().signals_for(run_id)
+        signals.bind_loop(asyncio.get_running_loop())
+        heartbeat = 0
+
+        def is_cancelled() -> bool:
+            time.sleep(0.1)
+            return False
+
+        async def tick() -> None:
+            nonlocal heartbeat
+            while True:
+                heartbeat += 1
+                await asyncio.sleep(0.01)
+
+        async def grant_soon() -> None:
+            await asyncio.sleep(0.03)
+            signals.set_approval_decision("granted")
+
+        ticker = asyncio.create_task(tick())
+        granter = asyncio.create_task(grant_soon())
+        try:
+            decision = await wait_for_approval_decision(
+                signals=signals,
+                is_cancelled=is_cancelled,
+                timeout_seconds=1.0,
+            )
+        finally:
+            ticker.cancel()
+            await asyncio.gather(ticker, granter, return_exceptions=True)
+
+        assert decision == "granted"
+        assert heartbeat >= 5
+
+    await _run()
 
 
 def _docker_available() -> bool:

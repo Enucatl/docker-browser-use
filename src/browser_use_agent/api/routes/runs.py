@@ -9,7 +9,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from browser_use_agent.api.deps import get_session
 from browser_use_agent.audit.costs import run_cost
@@ -49,7 +49,7 @@ class RunResponse(BaseModel):
     )
 
 
-def _to_response(run: Run, session: Session | None = None) -> RunResponse:
+async def _to_response(run: Run, session: AsyncSession | None = None) -> RunResponse:
     """Map an ORM run to the API response, including accumulated cost.
 
     Args:
@@ -68,7 +68,9 @@ def _to_response(run: Run, session: Session | None = None) -> RunResponse:
         updated_at=run.updated_at,
         started_at=run.started_at,
         finished_at=run.finished_at,
-        cost=run_cost(session, run.id) if session is not None else None,
+        cost=(await session.run_sync(lambda sync: run_cost(sync, run.id)))
+        if session is not None
+        else None,
     )
 
 
@@ -76,7 +78,7 @@ def _to_response(run: Run, session: Session | None = None) -> RunResponse:
 async def create_run(
     body: CreateRunRequest,
     request: Request,
-    session: Annotated[Session, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
 ) -> RunResponse:
     """Create a run from a natural-language goal and start the worker."""
     try:
@@ -85,49 +87,56 @@ async def create_run(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
-    run = run_service.create_run(session, body.goal.strip(), profile_id=profile.id)
+    run = await session.run_sync(
+        lambda sync: run_service.create_run(sync, body.goal.strip(), profile_id=profile.id)
+    )
     # Commit before the worker so it sees the queued row.
-    session.commit()
+    await session.commit()
 
     worker = getattr(request.app.state, "run_worker", None)
     if worker is not None:
-        await worker.start_run(run.id)
+        run_id = run.id
+        await worker.start_run(run_id)
         session.expire_all()
-        run = run_service.get_run(session, run.id)
+        run = await session.get(Run, run_id)
+        assert run is not None
 
-    return _to_response(run, session)
+    return await _to_response(run, session)
 
 
 @router.get("", response_model=list[RunResponse])
-def list_runs(
-    session: Annotated[Session, Depends(get_session)],
+async def list_runs(
+    session: Annotated[AsyncSession, Depends(get_session)],
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> list[RunResponse]:
     """List recent runs newest-first."""
-    return [_to_response(run, session) for run in run_service.list_runs(session, limit=limit)]
+    runs = await session.run_sync(lambda sync: run_service.list_runs(sync, limit=limit))
+    return [await _to_response(run, session) for run in runs]
 
 
 @router.get("/{run_id}", response_model=RunResponse)
-def get_run(
+async def get_run(
     run_id: uuid.UUID,
-    session: Annotated[Session, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
 ) -> RunResponse:
     """Return one run by id."""
     try:
-        run = run_service.get_run(session, run_id)
+        run = await session.get(Run, run_id)
+        if run is None:
+            raise run_service.RunNotFoundError(f"run {run_id} does not exist")
     except run_service.RunNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    return _to_response(run, session)
+    return await _to_response(run, session)
 
 
 @router.post("/{run_id}/stop", response_model=RunResponse)
-def stop_run(
+async def stop_run(
     run_id: uuid.UUID,
-    session: Annotated[Session, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
 ) -> RunResponse:
     """Cancel the run (alias of ``POST .../cancel``); worker exits cooperatively."""
     try:
-        run = run_service.stop_run(session, run_id)
+        run = await session.run_sync(lambda sync: run_service.stop_run(sync, run_id))
     except run_service.RunNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    return _to_response(run, session)
+    return await _to_response(run, session)

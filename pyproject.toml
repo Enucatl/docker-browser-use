@@ -36,6 +36,7 @@ dependencies = [
 dev = [
     "httpx>=0.28.1",
     "pytest>=8.0",
+    "pytest-asyncio>=1.0",
     "ruff>=0.6",
 ]
 
@@ -45,6 +46,7 @@ verify-audit = "browser_use_agent.audit.signed_checkpoints:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
 markers = [
     "integration: hits live Compose CDP (browser:9222); skipped unless BROWSER_CDP_URL is reachable",
 ]

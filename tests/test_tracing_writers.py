@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 import shutil
 import subprocess
@@ -274,7 +273,7 @@ def test_browser_action_writer_redacts_and_links_event(db_session: Session) -> N
     assert loaded.metadata_["password"] == REDACTED
 
 
-def test_fake_run_writes_model_calls_and_browser_actions(
+async def test_fake_run_writes_model_calls_and_browser_actions(
     db_session: Session,
     tmp_path: Path,
 ) -> None:
@@ -311,7 +310,7 @@ def test_fake_run_writes_model_calls_and_browser_actions(
         max_steps=5,
         commit=db_session.commit,
     )
-    outcome = asyncio.run(loop.run())
+    outcome = await loop.run()
     assert outcome.status == RunStatus.SUCCEEDED
 
     calls = list(db_session.scalars(select(ModelCall).where(ModelCall.run_id == run.id)).all())
@@ -337,7 +336,7 @@ def test_fake_run_writes_model_calls_and_browser_actions(
     assert click.event_seq is not None
 
 
-def test_type_text_model_call_row(db_session: Session) -> None:
+async def test_type_text_model_call_row(db_session: Session) -> None:
     """TYPE_TEXT via text LLM produces a text_llm model_calls row."""
     run = _create_run(db_session, goal="type invoice month")
     observation = BrowserObservation(
@@ -376,7 +375,7 @@ def test_type_text_model_call_row(db_session: Session) -> None:
         max_steps=5,
         commit=db_session.commit,
     )
-    outcome = asyncio.run(loop.run())
+    outcome = await loop.run()
     assert outcome.status == RunStatus.SUCCEEDED
 
     calls = list(db_session.scalars(select(ModelCall).where(ModelCall.run_id == run.id)).all())

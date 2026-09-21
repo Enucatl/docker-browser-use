@@ -147,7 +147,7 @@ def _obs(*, url: str = "https://example.com/") -> BrowserObservation:
     )
 
 
-def test_pause_blocks_further_actions_until_resume() -> None:
+async def test_pause_blocks_further_actions_until_resume() -> None:
     """Paused run executes no further browser actions until resume."""
 
     async def _run() -> None:
@@ -213,10 +213,10 @@ def test_pause_blocks_further_actions_until_resume() -> None:
         assert len(browser.executed) == 3
         assert browser.executed[-1].kind == ActionKind.DONE
 
-    asyncio.run(_run())
+    await _run()
 
 
-def test_cancel_during_slow_step_ends_cancelled() -> None:
+async def test_cancel_during_slow_step_ends_cancelled() -> None:
     """Cancel during a slow execute stops before the next action."""
 
     async def _run() -> None:
@@ -263,10 +263,10 @@ def test_cancel_during_slow_step_ends_cancelled() -> None:
         # In-flight execute may complete; no further actions.
         assert len(browser.executed) == 1
 
-    asyncio.run(_run())
+    await _run()
 
 
-def test_pause_then_cancel_race() -> None:
+async def test_pause_then_cancel_race() -> None:
     """Cancel while paused unblocks the waiter and ends cancelled."""
 
     async def _run() -> None:
@@ -308,10 +308,10 @@ def test_pause_then_cancel_race() -> None:
         assert browser.executed == []
         assert "run_cancelled" in audit.types()
 
-    asyncio.run(_run())
+    await _run()
 
 
-def test_step_retry_reobserves_after_failed_execute() -> None:
+async def test_step_retry_reobserves_after_failed_execute() -> None:
     """Armed step retry re-observes and decides instead of failing the run."""
 
     async def _run() -> None:
@@ -355,7 +355,7 @@ def test_step_retry_reobserves_after_failed_execute() -> None:
         assert "run_failed" not in audit.types()
         assert any(a.kind == ActionKind.DONE for a in browser.executed)
 
-    asyncio.run(_run())
+    await _run()
 
 
 def _docker_available() -> bool:

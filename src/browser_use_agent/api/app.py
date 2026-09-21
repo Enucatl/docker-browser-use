@@ -6,8 +6,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import Engine
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import sessionmaker
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from browser_use_agent import __version__
@@ -22,10 +23,11 @@ from browser_use_agent.api.routes.run_controls import router as run_controls_rou
 from browser_use_agent.api.routes.runs import router as runs_router
 from browser_use_agent.api.routes.takeover import router as takeover_router
 from browser_use_agent.api.ws import router as ws_router
+from browser_use_agent.audit.async_writers import AsyncAuditWriter
 from browser_use_agent.audit.writer import AuditWriter, set_append_hook
 from browser_use_agent.browser.session import BrowserSessionManager
 from browser_use_agent.config import AppSettings, load_app_settings
-from browser_use_agent.db.engine import create_engine_from_settings
+from browser_use_agent.db.engine import create_async_engine_from_settings
 from browser_use_agent.db.models import AgentEvent
 from browser_use_agent.web.routes import mount_web_ui
 
@@ -42,7 +44,7 @@ def _bridge_audit_to_event_bus(event: AgentEvent) -> None:
 def create_app(
     settings: AppSettings | None = None,
     *,
-    engine: Engine | None = None,
+    engine: Engine | AsyncEngine | None = None,
 ) -> FastAPI:
     """Build the controller FastAPI app.
 
@@ -70,28 +72,52 @@ def create_app(
 
     db_engine = engine
     if db_engine is None and resolved.database is not None:
-        db_engine = create_engine_from_settings(resolved.database)
+        db_engine = create_async_engine_from_settings(resolved.database)
 
     if db_engine is not None:
         app.state.engine = db_engine
-        app.state.session_factory = sessionmaker(
-            bind=db_engine,
-            class_=Session,
-            expire_on_commit=False,
-            autoflush=False,
-        )
+        if isinstance(db_engine, AsyncEngine):
+            app.state.async_engine = db_engine
+            app.state.async_session_factory = async_sessionmaker(
+                bind=db_engine,
+                expire_on_commit=False,
+                autoflush=False,
+            )
+            app.state.session_factory = app.state.async_session_factory
+            app.state.worker_session_factory = app.state.async_session_factory
+            app.state.manager_audit_factory = AsyncAuditWriter
+        else:
+            app.state.async_engine = create_async_engine(
+                db_engine.url, pool_pre_ping=True
+            )
+            app.state.async_session_factory = async_sessionmaker(
+                bind=app.state.async_engine,
+                expire_on_commit=False,
+                autoflush=False,
+            )
+            app.state.session_factory = sessionmaker(
+                bind=db_engine,
+                expire_on_commit=False,
+                autoflush=False,
+            )
+            app.state.worker_session_factory = app.state.session_factory
+            app.state.manager_audit_factory = AuditWriter
     else:
         app.state.engine = None
         app.state.session_factory = None
+        app.state.async_engine = None
+        app.state.async_session_factory = None
+        app.state.worker_session_factory = None
+        app.state.manager_audit_factory = None
 
     app.state.browser_session_manager = BrowserSessionManager(
         resolved.browser,
-        audit_factory=AuditWriter if db_engine is not None else None,
-        session_factory=app.state.session_factory,
+        audit_factory=getattr(app.state, "manager_audit_factory", None),
+        session_factory=app.state.worker_session_factory,
     )
-    if app.state.session_factory is not None:
+    if app.state.worker_session_factory is not None:
         app.state.run_worker = RunWorker(
-            app.state.session_factory,
+            app.state.worker_session_factory,
             settings=load_run_worker_settings(),
             browser_manager=app.state.browser_session_manager,
         )

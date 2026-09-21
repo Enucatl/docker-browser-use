@@ -114,7 +114,7 @@ def _obs(
     )
 
 
-def test_fake_jev_reaches_done_with_audit_chain() -> None:
+async def test_fake_jev_reaches_done_with_audit_chain() -> None:
     """A scripted Jev client navigates then DONE with a coherent event chain."""
 
     async def _run() -> None:
@@ -168,10 +168,49 @@ def test_fake_jev_reaches_done_with_audit_chain() -> None:
         assert None not in decision_steps
         assert len(decision_steps) == 2
 
-    asyncio.run(_run())
+    await _run()
 
 
-def test_cooperative_cancel_between_steps() -> None:
+async def test_predecision_does_not_block_event_loop() -> None:
+    """An async Jev client cannot freeze control signals or other tasks."""
+
+    async def _run() -> None:
+        run_id = uuid.uuid4()
+        audit = RecordingAuditWriter()
+        browser = FakeBrowserPort([_obs()])
+        fake = FakeJevClient([FakeDecision(operation="DONE", confidence=0.99)])
+
+        class SlowJev:
+            async def decide(self, request: Any) -> Any:
+                await asyncio.sleep(0.1)
+                return await fake.decide(request)
+
+        heartbeat = 0
+
+        async def tick() -> None:
+            nonlocal heartbeat
+            while True:
+                heartbeat += 1
+                await asyncio.sleep(0.01)
+
+        ticker = asyncio.create_task(tick())
+        try:
+            outcome = await AgentLoop(
+                run_id=run_id,
+                goal="Finish without blocking",
+                browser=browser,
+                jev=SlowJev(),
+                audit=audit,
+            ).run()
+        finally:
+            ticker.cancel()
+            await asyncio.gather(ticker, return_exceptions=True)
+
+        assert outcome.status == RunStatus.SUCCEEDED
+        assert heartbeat >= 5
+
+
+async def test_cooperative_cancel_between_steps() -> None:
     """Cancel check between steps stops the loop before further executes."""
 
     async def _run() -> None:
@@ -204,10 +243,10 @@ def test_cooperative_cancel_between_steps() -> None:
         assert len(browser.executed) == 1
         assert browser.executed[0].kind == ActionKind.SCROLL
 
-    asyncio.run(_run())
+    await _run()
 
 
-def test_secrets_redacted_in_stored_payloads() -> None:
+async def test_secrets_redacted_in_stored_payloads() -> None:
     """Secrets do not appear in stored audit payloads (redaction path used)."""
 
     async def _run() -> None:
@@ -231,10 +270,10 @@ def test_secrets_redacted_in_stored_payloads() -> None:
         started = next(e for e in audit.events if e.event_type == "run_started")
         assert started.payload.get("goal") == REDACTED or REDACTED in str(started.payload)
 
-    asyncio.run(_run())
+    await _run()
 
 
-def test_type_text_fail_closed_without_text_llm() -> None:
+async def test_type_text_fail_closed_without_text_llm() -> None:
     """TYPE_TEXT without a text LLM client fails closed with audit events."""
 
     async def _run() -> None:
@@ -272,10 +311,10 @@ def test_type_text_fail_closed_without_text_llm() -> None:
                 AgentAction(kind=ActionKind.TYPE_TEXT, target_index=1, params=ActionParams()),
             )
 
-    asyncio.run(_run())
+    await _run()
 
 
-def test_needs_approval_hook_defaults_false_and_can_pause() -> None:
+async def test_needs_approval_hook_defaults_false_and_can_pause() -> None:
     """DONE never needs approval; a custom hook parks until granted."""
     assert (
         default_needs_approval(
@@ -331,10 +370,10 @@ def test_needs_approval_hook_defaults_false_and_can_pause() -> None:
         assert "approval_requested" in audit.types()
         assert any(a.kind == ActionKind.NAVIGATE for a in browser.executed)
 
-    asyncio.run(_run())
+    await _run()
 
 
-def test_run_worker_with_fake_port_reaches_done() -> None:
+async def test_run_worker_with_fake_port_reaches_done() -> None:
     """RunWorker drives a queued run to succeeded using injected fakes."""
 
     async def _run() -> None:
@@ -396,7 +435,7 @@ def test_run_worker_with_fake_port_reaches_done() -> None:
         assert "run_succeeded" in audit_trail.types()
         assert "decision" in audit_trail.types()
 
-    asyncio.run(_run())
+    await _run()
 
 
 def test_redact_for_audit_used_on_decision_shaped_payload() -> None:

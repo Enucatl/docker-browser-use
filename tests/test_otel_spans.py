@@ -35,7 +35,7 @@ def _form_observation() -> BrowserObservation:
     )
 
 
-def test_loop_emits_safe_phase_spans_and_metrics() -> None:
+async def test_loop_emits_safe_phase_spans_and_metrics() -> None:
     """Loop phases carry IDs and never copy goal or typed text into spans."""
     spans = InMemorySpanExporter()
     metrics = InMemoryMetricReader()
@@ -94,7 +94,7 @@ def test_loop_emits_safe_phase_spans_and_metrics() -> None:
         signals.set_approval_decision("granted")
         await approval_task
 
-    asyncio.run(_run())
+    await _run()
 
     finished = spans.get_finished_spans()
     names = {span.name for span in finished}

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from typing import Annotated
 
 from fastapi import Depends, Request
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from browser_use_agent.api.auth import User, require_user
 
@@ -14,7 +14,7 @@ from browser_use_agent.api.auth import User, require_user
 CurrentUser = Annotated[User, Depends(require_user)]
 
 
-def get_session(request: Request) -> Iterator[Session]:
+async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     """Yield a request-scoped SQLAlchemy session and commit on success.
 
     Args:
@@ -26,16 +26,18 @@ def get_session(request: Request) -> Iterator[Session]:
     Raises:
         RuntimeError: When the app was started without a database engine.
     """
-    factory: sessionmaker[Session] | None = getattr(request.app.state, "session_factory", None)
+    factory: async_sessionmaker[AsyncSession] | None = getattr(
+        request.app.state, "async_session_factory", None
+    )
     if factory is None:
         raise RuntimeError("Database is not configured; set DATABASE_HOST and related vars")
 
     session = factory()
     try:
         yield session
-        session.commit()
+        await session.commit()
     except Exception:
-        session.rollback()
+        await session.rollback()
         raise
     finally:
-        session.close()
+        await session.close()

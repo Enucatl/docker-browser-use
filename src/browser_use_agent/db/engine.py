@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from sqlalchemy import Engine, create_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from browser_use_agent.db.settings import (
     DatabaseSettings,
@@ -49,3 +50,16 @@ def create_engine_from_settings(
     if url is None:
         return None
     return create_engine(url, echo=echo, pool_pre_ping=True)
+
+
+def create_async_engine_from_settings(
+    settings: DatabaseSettings | None = None,
+    *,
+    echo: bool = False,
+) -> AsyncEngine | None:
+    """Create an async SQLAlchemy engine when database settings are available."""
+    resolved = settings if settings is not None else load_database_settings()
+    url = build_sqlalchemy_url(resolved)
+    if url is None:
+        return None
+    return create_async_engine(url, echo=echo, pool_pre_ping=True)

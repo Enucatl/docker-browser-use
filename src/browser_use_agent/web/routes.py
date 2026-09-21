@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from browser_use_agent.agent.worker import RunWorker
 from browser_use_agent.api.deps import CurrentUser, get_session
@@ -96,9 +96,9 @@ def _event_row(event: AgentEvent) -> dict[str, Any]:
     }
 
 
-def _run_context(
+async def _run_context(
     run: Run,
-    session: Session,
+    session: AsyncSession,
     *,
     pending: HumanApproval | None = None,
 ) -> dict[str, Any]:
@@ -133,7 +133,7 @@ def _run_context(
         "updated_at": _iso(run.updated_at),
         "started_at": _iso(run.started_at),
         "finished_at": _iso(run.finished_at),
-        "cost": run_cost(session, run.id),
+        "cost": await session.run_sync(lambda sync: run_cost(sync, run.id)),
         "terminal": terminal,
         "awaiting_approval": awaiting_approval,
         "awaiting_human": awaiting_human,
@@ -158,7 +158,7 @@ def _run_context(
     }
 
 
-def _load_events(session: Session, run_id: uuid.UUID) -> list[dict[str, Any]]:
+async def _load_events(session: AsyncSession, run_id: uuid.UUID) -> list[dict[str, Any]]:
     """Load recent audit events for bootstrap display.
 
     Args:
@@ -174,7 +174,7 @@ def _load_events(session: Session, run_id: uuid.UUID) -> list[dict[str, Any]]:
         .order_by(AgentEvent.seq.desc())
         .limit(_BOOTSTRAP_EVENT_LIMIT)
     )
-    rows = list(reversed(list(session.scalars(stmt).all())))
+    rows = list(reversed(list((await session.scalars(stmt)).all())))
     return [_event_row(event) for event in rows]
 
 
@@ -195,19 +195,19 @@ def _flash_redirect(url: str, *, error: str | None = None) -> RedirectResponse:
 
 
 @router.get("/", response_class=HTMLResponse)
-def home(
+async def home(
     request: Request,
-    session: Annotated[Session, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     user: CurrentUser,
 ) -> Response:
     """Render new-run form and recent run history."""
-    runs = run_service.list_runs(session, limit=_HISTORY_LIMIT)
+    runs = await session.run_sync(lambda sync: run_service.list_runs(sync, limit=_HISTORY_LIMIT))
     return templates.TemplateResponse(
         request,
         "home.html",
         {
             "user": user,
-            "runs": [_run_context(run, session) for run in runs],
+            "runs": [await _run_context(run, session) for run in runs],
             "profiles": list_profiles(settings=request.app.state.settings.browser),
             "default_profile": request.app.state.settings.browser.default_profile,
             "error": request.query_params.get("error"),
@@ -216,20 +216,20 @@ def home(
 
 
 @router.get("/history", response_class=HTMLResponse)
-def history(
+async def history(
     request: Request,
-    session: Annotated[Session, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     user: CurrentUser,
 ) -> Response:
     """Render run history list (same data as home, focused view)."""
-    runs = run_service.list_runs(session, limit=_HISTORY_LIMIT)
-    summary = recent_cost_summary(session)
+    runs = await session.run_sync(lambda sync: run_service.list_runs(sync, limit=_HISTORY_LIMIT))
+    summary = await session.run_sync(lambda sync: recent_cost_summary(sync))
     return templates.TemplateResponse(
         request,
         "history.html",
         {
             "user": user,
-            "runs": [_run_context(run, session) for run in runs],
+            "runs": [await _run_context(run, session) for run in runs],
             "cost_summary": summary,
         },
     )
@@ -238,7 +238,7 @@ def history(
 @router.post("/runs", response_class=HTMLResponse)
 async def create_run_form(
     request: Request,
-    session: Annotated[Session, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     user: CurrentUser,
     goal: Annotated[str, Form()],
     profile_id: Annotated[str | None, Form()] = None,
@@ -253,8 +253,10 @@ async def create_run_form(
         profile = get_profile(profile_id, settings=request.app.state.settings.browser)
     except KeyError as exc:
         return _flash_redirect("/", error=str(exc))
-    run = run_service.create_run(session, stripped, profile_id=profile.id)
-    session.commit()
+    run = await session.run_sync(
+        lambda sync: run_service.create_run(sync, stripped, profile_id=profile.id)
+    )
+    await session.commit()
 
     worker = _worker(request)
     if worker is not None:
@@ -267,21 +269,25 @@ async def create_run_form(
 
 
 @router.get("/runs/{run_id}", response_class=HTMLResponse)
-def run_detail(
+async def run_detail(
     request: Request,
     run_id: uuid.UUID,
-    session: Annotated[Session, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     user: CurrentUser,
 ) -> Response:
     """Render active/detail run page with controls and live event stream."""
     try:
-        run = run_service.get_run(session, run_id)
+        run = await session.get(Run, run_id)
+        if run is None:
+            raise run_service.RunNotFoundError(f"run {run_id} does not exist")
     except run_service.RunNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
-    pending = approval_service.get_pending_approval(session, run_id)
-    events = _load_events(session, run_id)
-    ctx = _run_context(run, session, pending=pending)
+    pending = await session.run_sync(
+        lambda sync: approval_service.get_pending_approval(sync, run_id)
+    )
+    events = await _load_events(session, run_id)
+    ctx = await _run_context(run, session, pending=pending)
     return templates.TemplateResponse(
         request,
         "run.html",
@@ -298,7 +304,7 @@ def run_detail(
 
 async def _control_action(
     request: Request,
-    session: Session,
+    session: AsyncSession,
     run_id: uuid.UUID,
     *,
     action: str,
@@ -321,22 +327,30 @@ async def _control_action(
     dest = f"/runs/{run_id}"
     try:
         if action == "pause":
-            run_service.pause_run(session, run_id)
+            await session.run_sync(lambda sync: run_service.pause_run(sync, run_id))
         elif action == "resume":
-            run_service.resume_run(session, run_id)
+            await session.run_sync(lambda sync: run_service.resume_run(sync, run_id))
         elif action == "cancel":
-            run_service.cancel_run(session, run_id)
+            await session.run_sync(lambda sync: run_service.cancel_run(sync, run_id))
         elif action == "approve":
-            approval_service.approve_run(session, run_id, actor=actor, reason=reason)
+            await session.run_sync(
+                lambda sync: approval_service.approve_run(sync, run_id, actor=actor, reason=reason)
+            )
         elif action == "reject":
-            approval_service.reject_run(session, run_id, actor=actor, reason=reason)
+            await session.run_sync(
+                lambda sync: approval_service.reject_run(sync, run_id, actor=actor, reason=reason)
+            )
         elif action == "take-control":
-            takeover_service.take_control(session, run_id, actor=actor)
+            await session.run_sync(
+                lambda sync: takeover_service.take_control(sync, run_id, actor=actor)
+            )
         elif action == "release-control":
-            takeover_service.release_control(session, run_id, actor=actor)
+            await session.run_sync(
+                lambda sync: takeover_service.release_control(sync, run_id, actor=actor)
+            )
         elif action == "retry":
-            run = run_service.retry_run(session, run_id)
-            session.commit()
+            run = await session.run_sync(lambda sync: run_service.retry_run(sync, run_id))
+            await session.commit()
             if run.status == RunStatus.QUEUED.value:
                 worker = _worker(request)
                 if worker is not None:
@@ -355,7 +369,7 @@ async def _control_action(
 async def ui_pause(
     request: Request,
     run_id: uuid.UUID,
-    session: Annotated[Session, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     user: CurrentUser,
 ) -> RedirectResponse:
     """Pause the run from the Web UI."""
@@ -366,7 +380,7 @@ async def ui_pause(
 async def ui_resume(
     request: Request,
     run_id: uuid.UUID,
-    session: Annotated[Session, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     user: CurrentUser,
 ) -> RedirectResponse:
     """Resume the run from the Web UI."""
@@ -377,7 +391,7 @@ async def ui_resume(
 async def ui_cancel(
     request: Request,
     run_id: uuid.UUID,
-    session: Annotated[Session, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     user: CurrentUser,
 ) -> RedirectResponse:
     """Cancel the run from the Web UI."""
@@ -388,7 +402,7 @@ async def ui_cancel(
 async def ui_approve(
     request: Request,
     run_id: uuid.UUID,
-    session: Annotated[Session, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     user: CurrentUser,
     reason: Annotated[str | None, Form()] = None,
 ) -> RedirectResponse:
@@ -408,7 +422,7 @@ async def ui_approve(
 async def ui_reject(
     request: Request,
     run_id: uuid.UUID,
-    session: Annotated[Session, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     user: CurrentUser,
     reason: Annotated[str | None, Form()] = None,
 ) -> RedirectResponse:
@@ -428,7 +442,7 @@ async def ui_reject(
 async def ui_take_control(
     request: Request,
     run_id: uuid.UUID,
-    session: Annotated[Session, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     user: CurrentUser,
 ) -> RedirectResponse:
     """Hand the browser to the operator from the Web UI."""
@@ -445,7 +459,7 @@ async def ui_take_control(
 async def ui_release_control(
     request: Request,
     run_id: uuid.UUID,
-    session: Annotated[Session, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     user: CurrentUser,
 ) -> RedirectResponse:
     """Return control to the agent from the Web UI."""
@@ -462,7 +476,7 @@ async def ui_release_control(
 async def ui_retry(
     request: Request,
     run_id: uuid.UUID,
-    session: Annotated[Session, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
     user: CurrentUser,
 ) -> RedirectResponse:
     """Retry a failed run from the Web UI."""

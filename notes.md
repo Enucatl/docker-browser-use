@@ -1,5 +1,0 @@
-- why separate /vnc from the main page?
-- navigate cannot extract URL now
-- anything to simplify?
-- cost dashboard? maybe not needed
-- should be able to detect loops and stop

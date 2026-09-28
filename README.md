@@ -15,6 +15,16 @@ uv run ruff format .
 uv run ruff check .
 ```
 
+The run workspace has an optional real-browser regression check. Point it at a
+test Chrome CDP endpoint; it creates a temporary browser tab and uses the UI
+tests' isolated Postgres database:
+
+```bash
+BROWSER_UI_CDP_URL=http://localhost:9222 uv run pytest tests/test_run_browser.py -q
+```
+
+Without `BROWSER_UI_CDP_URL`, this browser check is skipped.
+
 Postgres audit schema migrations (Alembic): see [`db/README.md`](db/README.md).
 The Compose `controller` entrypoint applies `upgrade head` on start. On a host
 with `DATABASE_*` set you can also run

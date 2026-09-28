@@ -7,15 +7,14 @@
   <link rel="stylesheet" href="/static/app.css">
   {% block head %}{% endblock %}
 </head>
-<body>
+<body class="{% block body_class %}{% endblock %}">
   <header class="top">
-    <nav>
-      <a class="brand" href="/">browser-use</a>
-      <a href="/">New run</a>
+    <nav aria-label="Main navigation">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">✿</span> browser-use</a>
       <a href="/history">History</a>
       <a href="/vnc/" target="_blank" rel="noopener">Live view</a>
     </nav>
-    <p class="who">{{ user.username }}{% if user.name %} · {{ user.name }}{% endif %}</p>
+    <div class="account"><p class="who">{{ user.username }}{% if user.name %} · {{ user.name }}{% endif %}</p><a class="button" href="/">+ New run</a></div>
   </header>
   <main>
     {% if error %}

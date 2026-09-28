@@ -1,121 +1,129 @@
 {% extends "base.html" %}
 {% block title %}Run {{ run.id[:8] }} · browser-use{% endblock %}
+{% block body_class %}run-page{% endblock %}
 {% block content %}
-<section class="panel run-header">
-  <p class="muted mono">{{ run.id }}</p>
-  <h1>{{ run.goal }}</h1>
-  <p>
-    Status:
+<div class="run-workspace">
+  <aside class="run-sidebar" aria-label="Run details and controls">
+    <a class="back-link" href="/history">← All runs</a>
+    <h1>{{ run.goal }}</h1>
     <strong id="run-status" class="status status-{{ run.status }}">{{ run.status }}</strong>
-    · Cost: <span id="run-cost" class="cost">{% if run.cost is not none %}${{ run.cost }} USD{% else %}—{% endif %}</span>
-  </p>
-  <p class="muted">Chrome profile: {{ run.profile_id }}</p>
-  <p class="muted">
-    Created {{ run.created_at }}
-    {% if run.started_at %} · Started {{ run.started_at }}{% endif %}
-    {% if run.finished_at %} · Finished {{ run.finished_at }}{% endif %}
-  </p>
-</section>
-
-<section class="panel live-view">
-  <div class="panel-heading">
-    <h2>Live browser</h2>
-    <a href="{{ vnc_url }}" target="_blank" rel="noopener">Open separately</a>
-  </div>
-  <iframe
-    src="{{ vnc_url }}"
-    title="Live browser view"
-    loading="lazy"
-  ></iframe>
-</section>
-
-<section class="panel">
-  <h2>Cost</h2>
-  <p class="cost">{% if run.cost is not none %}${{ run.cost }} USD{% else %}No priced model calls yet.{% endif %}</p>
-  <p class="muted">Model-call estimates from the configured price table.</p>
-</section>
-
-<section class="panel">
-  <h2>Controls</h2>
-  <div class="btn-row">
-    {% if run.can_pause %}
-    <form method="post" action="/runs/{{ run.id }}/pause"><button type="submit">Pause</button></form>
-    {% endif %}
-    {% if run.can_resume %}
-    <form method="post" action="/runs/{{ run.id }}/resume"><button type="submit">Resume</button></form>
-    {% endif %}
-    {% if run.can_cancel %}
-    <form method="post" action="/runs/{{ run.id }}/cancel"><button type="submit" class="danger">Cancel</button></form>
-    {% endif %}
-    {% if run.terminal and run.status == 'failed' %}
-    <form method="post" action="/runs/{{ run.id }}/retry"><button type="submit">Retry</button></form>
-    {% endif %}
-  </div>
-  <div class="btn-row links">
-    <a class="button" href="{{ vnc_url }}" target="_blank" rel="noopener">Open live view (/vnc)</a>
-    {% if run.can_take_control %}
-    <form method="post" action="/runs/{{ run.id }}/take-control">
-      <button type="submit">Take control</button>
-    </form>
-    {% endif %}
-    {% if run.can_release_control %}
-    <form method="post" action="/runs/{{ run.id }}/release-control">
-      <button type="submit">Release control</button>
-    </form>
-    {% endif %}
-  </div>
-</section>
-
-{% if run.awaiting_approval and run.pending_approval %}
-<section class="panel approval" id="approval-panel">
-  <h2>Approval required</h2>
-  <p>{{ run.pending_approval.reason or "A high-impact action needs your decision." }}</p>
-  {% if run.pending_approval.metadata %}
-  <pre class="payload">{{ run.pending_approval.metadata }}</pre>
-  {% endif %}
-  <form method="post" action="/runs/{{ run.id }}/approve" class="stack">
-    <label for="approve-reason">Note (optional)</label>
-    <input id="approve-reason" name="reason" type="text" placeholder="Looks correct">
-    <div class="btn-row">
-      <button type="submit">Approve</button>
+    <p class="muted status-description">{% if run.status == 'succeeded' %}Task completed successfully.{% elif run.status == 'failed' %}Run failed. Review the activity for details.{% elif run.status == 'cancelled' %}This run was cancelled.{% elif run.awaiting_approval %}Waiting for your approval.{% elif run.awaiting_human %}You have control of the browser.{% elif run.status == 'paused' %}Execution is paused.{% elif run.status == 'queued' %}Waiting to start.{% else %}The agent is executing your task.{% endif %}</p>
+    <dl class="facts run-facts">
+      <dt>Run ID</dt><dd class="mono">{{ run.id }}</dd>
+      <dt>Elapsed time</dt><dd data-elapsed>{% if summary.elapsed_seconds is not none %}{{ summary.elapsed_seconds|round|int }}s{% else %}Not started{% endif %}</dd>
+      <dt>Browser profile</dt><dd>{{ run.profile_id or "Not recorded" }}</dd>
+      <dt>Created</dt><dd><time datetime="{{ run.created_at }}">{{ run.created_at }}</time></dd>
+      <dt>Started</dt><dd>{% if run.started_at %}<time datetime="{{ run.started_at }}">{{ run.started_at }}</time>{% else %}Not started{% endif %}</dd>
+      <dt>Finished</dt><dd>{% if run.finished_at %}<time datetime="{{ run.finished_at }}">{{ run.finished_at }}</time>{% else %}—{% endif %}</dd>
+    </dl>
+    <div class="run-controls" aria-label="Run controls">
+      <a class="button" href="{{ vnc_url }}" target="_blank" rel="noopener">Open live view <span aria-hidden="true">↗</span></a>
+      {% if run.can_pause %}<form method="post" action="/runs/{{ run.id }}/pause"><button class="secondary" type="submit">Pause</button></form>{% endif %}
+      {% if run.can_resume %}<form method="post" action="/runs/{{ run.id }}/resume"><button type="submit">Resume</button></form>{% endif %}
+      {% if run.can_take_control %}<form method="post" action="/runs/{{ run.id }}/take-control"><button class="secondary" type="submit">Take control</button></form>{% endif %}
+      {% if run.can_release_control %}<form method="post" action="/runs/{{ run.id }}/release-control"><button type="submit">Release control</button></form>{% endif %}
+      {% if run.can_cancel %}<form method="post" action="/runs/{{ run.id }}/cancel"><button class="danger secondary" type="submit">Cancel</button></form>{% endif %}
+      {% if run.terminal and run.status == 'failed' %}<form method="post" action="/runs/{{ run.id }}/retry"><button type="submit">Retry</button></form>{% endif %}
     </div>
-  </form>
-  <form method="post" action="/runs/{{ run.id }}/reject" class="stack">
-    <label for="reject-reason">Reject reason (optional)</label>
-    <input id="reject-reason" name="reason" type="text" placeholder="Do not proceed">
-    <div class="btn-row">
-      <button type="submit" class="danger">Reject</button>
+    {% if run.awaiting_approval and run.pending_approval %}
+    <section class="approval" id="approval-panel" aria-labelledby="approval-title">
+      <h2 id="approval-title">Approval required</h2>
+      <p>{{ run.pending_approval.reason or "A high-impact action needs your decision." }}</p>
+      {% if run.pending_approval.metadata %}<details><summary>Action details</summary><pre class="payload">{{ run.pending_approval.metadata|tojson(indent=2) }}</pre></details>{% endif %}
+      <form method="post" action="/runs/{{ run.id }}/approve" class="stack">
+        <label for="approve-reason">Note (optional)</label><input id="approve-reason" name="reason" type="text"><button type="submit">Approve</button>
+      </form>
+      <form method="post" action="/runs/{{ run.id }}/reject" class="stack">
+        <label for="reject-reason">Reject reason (optional)</label><input id="reject-reason" name="reason" type="text"><button type="submit" class="danger">Reject</button>
+      </form>
+    </section>
+    {% endif %}
+  </aside>
+  <section class="run-stage" aria-label="Browser and execution history">
+    <div class="panel-heading browser-heading">
+      <h2>Browser view</h2>
+      <span class="muted" id="browser-mode">{% if run.is_active %}<span class="live-dot" aria-hidden="true"></span>Live session{% else %}Recorded screenshot{% endif %}</span>
+      <button type="button" class="secondary compact" id="return-to-browser" hidden>Return to {% if run.is_active %}live view{% else %}latest screenshot{% endif %}</button>
+      <button type="button" class="secondary compact" id="fullscreen" hidden>Full screen</button>
     </div>
-  </form>
-</section>
-{% endif %}
-
-<section class="panel">
-  <h2>Live events</h2>
-  <p class="muted" id="ws-state">Connecting…</p>
-  <p id="current-decision" class="decision" hidden></p>
-  <ol id="event-list" class="event-list" reversed>
-    {% for event in events %}
-    <li data-seq="{{ event.seq }}">
-      <span class="seq">#{{ event.seq }}</span>
-      <span class="etype">{{ event.event_type }}</span>
-      <span class="muted">{{ event.occurred_at }}</span>
-      {% if event.payload %}
-      <pre class="payload">{{ event.payload }}</pre>
-      {% endif %}
-    </li>
-    {% endfor %}
-  </ol>
-</section>
+    <div class="browser-frame" id="browser-frame">
+      <div class="browser-toolbar"><span aria-hidden="true">◉</span><span id="browser-location">{% if run.is_active %}Shared Chrome session · {{ run.profile_id or "Not recorded" }}{% else %}Saved browser state for this run{% endif %}</span></div>
+      <div class="browser-viewport" id="browser-viewport">
+        {% if run.is_active %}<iframe id="live-browser" src="{{ vnc_url }}" title="Live browser view" loading="lazy"></iframe>{% endif %}
+        <img id="browser-screenshot" {% if latest_screenshot and not run.is_active %}src="{{ latest_screenshot.preview_url }}"{% else %}hidden{% endif %} alt="Recorded browser screenshot for this run">
+        <p class="empty-state" id="browser-empty" {% if run.is_active or latest_screenshot %}hidden{% endif %}>No screenshot was recorded for this run.</p>
+      </div>
+      <p class="browser-caption" id="browser-caption">{% if run.is_active %}Live view shows the shared browser session. Use Take control before interacting.{% elif latest_screenshot %}Last recorded screenshot. The live session may have changed since this run.{% else %}Recorded screenshots appear here when available.{% endif %}</p>
+    </div>
+    <section class="panel execution-panel" aria-label="Execution history">
+      <div class="section-tabs" role="tablist" aria-label="Execution history" id="history-tabs">
+        <button type="button" id="timeline-tab" role="tab" aria-controls="timeline-panel" aria-selected="true">Timeline</button>
+        <button type="button" id="artifacts-tab" role="tab" aria-controls="artifacts-panel" aria-selected="false" tabindex="-1">Artifacts <span id="artifact-count">({{ summary.artifacts }})</span></button>
+      </div>
+      <div id="timeline-panel" role="tabpanel" aria-labelledby="timeline-tab">
+        <div class="panel-heading"><p class="muted small">Select an event to inspect it.</p><span class="muted small" data-elapsed>{% if summary.elapsed_seconds is not none %}{{ summary.elapsed_seconds|round|int }}s{% else %}Not started{% endif %}</span></div>
+        <ol class="timeline" id="timeline">
+          {% for event in events %}<li><a href="#event-{{ event.seq }}" data-event-seq="{{ event.seq }}" class="timeline-event tone-{{ event.display.tone }}" title="{{ event.display.title }}"><span>{{ event.display.title }}</span><small>#{{ event.seq }}</small></a></li>{% endfor %}
+        </ol>
+        <p class="empty-state" id="timeline-empty" {% if events %}hidden{% endif %}>The timeline will appear when execution begins.</p>
+        <p class="muted small">Recent {{ event_limit }} events · timestamps reflect recorded activity.</p>
+      </div>
+      <div id="artifacts-panel" role="tabpanel" aria-labelledby="artifacts-tab">
+        <ul class="artifact-list" id="artifact-list">
+          {% for artifact in artifacts %}
+          <li data-artifact-id="{{ artifact.id }}">
+            <span class="artifact-icon" aria-hidden="true">{% if artifact.preview_url %}▧{% else %}▤{% endif %}</span>
+            <div><strong>{{ artifact.kind|replace('_', ' ')|capitalize }}</strong><small>{{ artifact.media_type }} · {{ artifact.size_bytes }} bytes</small><time datetime="{{ artifact.created_at }}">{{ artifact.created_at }}</time></div>
+            {% if artifact.preview_url %}<a class="artifact-preview" href="{{ artifact.preview_url }}" data-artifact-id="{{ artifact.id }}">Preview</a>{% endif %}<a href="{{ artifact.url }}" download>Download</a>
+          </li>
+          {% endfor %}
+        </ul>
+        <p class="empty-state" id="artifacts-empty" {% if artifacts %}hidden{% endif %}>No artifacts recorded yet. Captured screenshots and saved state will appear here.</p>
+        <p class="muted small">Latest {{ artifact_limit }} artifacts · availability follows the retention policy.</p>
+      </div>
+    </section>
+  </section>
+  <aside class="activity-sidebar" aria-label="Run activity">
+    <section aria-labelledby="activity-title">
+      <div class="panel-heading"><h2 id="activity-title">Activity</h2><label class="sr-only" for="event-filter">Filter activity</label><select id="event-filter"><option value="all">All events</option><option value="browser">Browser</option><option value="model">Model calls</option><option value="approval">Approvals</option><option value="run">Run lifecycle</option><option value="artifact">Artifacts</option><option value="error">Errors</option><option value="other">Other</option></select></div>
+      <p class="muted small" id="ws-state" role="status">{% if run.is_active %}Connecting…{% else %}Recorded activity{% endif %}</p>
+      <p class="sr-only" id="activity-update" role="status"></p>
+      <ol id="event-list" class="event-list">
+        {% for event in events %}
+        <li id="event-{{ event.seq }}" data-seq="{{ event.seq }}" data-category="{{ event.display.category }}" data-tone="{{ event.display.tone }}">
+          <button type="button" class="event-select" data-event-seq="{{ event.seq }}" aria-pressed="false">
+            <span class="event-icon tone-{{ event.display.tone }}" aria-hidden="true">{% if event.display.tone == 'success' %}✓{% elif event.display.tone == 'error' %}!{% elif event.display.category == 'browser' %}◎{% else %}·{% endif %}</span>
+            <span class="event-copy"><strong>{{ event.display.title }}</strong><span>{{ event.display.summary }}</span></span><time datetime="{{ event.occurred_at }}">{{ event.occurred_at }}</time>
+          </button>
+          <details class="event-technical"><summary>Technical details <span class="seq">#{{ event.seq }}</span></summary><pre class="payload">{{ event.payload|tojson(indent=2) }}</pre>{% if event.truncated %}<p class="muted small">Payload truncated. Full data may be available in artifacts.</p>{% endif %}</details>
+        </li>
+        {% endfor %}
+      </ol>
+      <p class="empty-state" id="events-empty" {% if events %}hidden{% endif %}>No activity recorded yet.</p>
+    </section>
+    <section class="panel selected-event" aria-labelledby="selected-title">
+      <h2 id="selected-title">Selected event</h2><p class="muted small" id="selection-empty">Select an activity or timeline event to see its details.</p>
+      <div id="selection-content" hidden>
+        <div class="panel-heading"><h3 id="selection-title"></h3><span class="seq" id="selection-seq"></span></div>
+        <p id="selection-summary" class="muted small"></p><dl id="selection-details" class="facts"></dl><div id="selection-artifacts" class="stack"></div>
+        <details><summary>Technical details</summary><pre class="payload" id="selection-payload"></pre><p id="selection-truncated" class="muted small" hidden>Payload truncated. Full data may be available in artifacts.</p></details>
+      </div>
+    </section>
+    <section class="panel run-summary" aria-labelledby="summary-title">
+      <h2 id="summary-title">Run summary</h2>
+      <dl class="facts">
+        <dt>Result</dt><dd class="status status-{{ run.status }}">{{ run.status|replace('_', ' ') }}</dd>
+        <dt>Steps</dt><dd id="summary-steps">{{ summary.steps }}</dd><dt>Actions requested</dt><dd id="summary-actions">{{ summary.actions }}</dd>
+        <dt>Duration</dt><dd data-elapsed>{% if summary.elapsed_seconds is not none %}{{ summary.elapsed_seconds|round|int }}s{% else %}Not started{% endif %}</dd>
+        <dt>Browser profile</dt><dd>{{ run.profile_id or "Not recorded" }}</dd><dt>Artifacts</dt><dd id="summary-artifacts">{{ summary.artifacts }}</dd>
+        <dt>Estimated cost</dt><dd id="run-cost" class="cost">{% if run.cost is not none %}${{ run.cost }} USD{% else %}Not priced{% endif %}</dd>
+      </dl>
+    </section>
+  </aside>
+</div>
+<template id="event-template"><li><button type="button" class="event-select" aria-pressed="false"><span class="event-icon" aria-hidden="true"></span><span class="event-copy"><strong></strong><span></span></span><time></time></button><details class="event-technical"><summary>Technical details <span class="seq"></span></summary><pre class="payload"></pre><p class="truncation muted small" hidden>Payload truncated. Full data may be available in artifacts.</p></details></li></template>
 {% endblock %}
-
 {% block scripts %}
-<script>
-  window.BROWSER_USE_RUN = {
-    id: {{ run.id|tojson }},
-    status: {{ run.status|tojson }},
-    isActive: {{ run.is_active|tojson }},
-  };
-</script>
+<script id="run-data" type="application/json">{{ {"id": run.id, "status": run.status, "isActive": run.is_active, "startedAt": run.started_at, "finishedAt": run.finished_at, "events": events, "artifacts": artifacts, "summary": summary, "latestScreenshot": latest_screenshot, "eventLimit": event_limit}|tojson }}</script>
 <script src="/static/run.js" defer></script>
 {% endblock %}

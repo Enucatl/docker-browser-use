@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import quote
@@ -13,20 +12,27 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from browser_use_agent.agent.worker import RunWorker
 from browser_use_agent.api.deps import CurrentUser, get_session
 from browser_use_agent.api.events_bus import bound_payload
+from browser_use_agent.artifacts.store import (
+    ArtifactNotFoundError,
+    create_artifact_store,
+    storage_key_for,
+)
 from browser_use_agent.audit.costs import recent_cost_summary, run_cost
 from browser_use_agent.browser.profiles import get_profile, list_profiles
-from browser_use_agent.db.models import AgentEvent, HumanApproval, Run
+from browser_use_agent.db.models import AgentEvent, Artifact, HumanApproval, Run
 from browser_use_agent.runs.status import TERMINAL_STATUSES, RunStatus
 from browser_use_agent.services import approvals as approval_service
 from browser_use_agent.services import runs as run_service
 from browser_use_agent.services import takeover as takeover_service
 from browser_use_agent.web.paths import STATIC_DIR, TEMPLATES_DIR
+from browser_use_agent.web.presentation import event_display
 
 router = APIRouter(tags=["web-ui"])
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -34,6 +40,8 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 # How many audit events to seed into the run page before the WS stream.
 _BOOTSTRAP_EVENT_LIMIT = 100
 _HISTORY_LIMIT = 50
+_ARTIFACT_LIMIT = 100
+_PREVIEW_MEDIA_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
 
 
 def mount_web_ui(app: Any) -> None:
@@ -93,6 +101,8 @@ def _event_row(event: AgentEvent) -> dict[str, Any]:
         "occurred_at": _iso(event.occurred_at),
         "payload": payload,
         "truncated": truncated,
+        "step_id": str(event.step_id) if event.step_id else None,
+        "display": event_display(event),
     }
 
 
@@ -176,6 +186,151 @@ async def _load_events(session: AsyncSession, run_id: uuid.UUID) -> list[dict[st
     )
     rows = list(reversed(list((await session.scalars(stmt)).all())))
     return [_event_row(event) for event in rows]
+
+
+def _artifact_row(artifact: Artifact, event_seq: int | None) -> dict[str, Any]:
+    """Describe a stored file without exposing its storage location."""
+    url = f"/runs/{artifact.run_id}/artifacts/{artifact.id}"
+    metadata = artifact.metadata_ or {}
+    return {
+        "id": str(artifact.id),
+        "kind": artifact.kind,
+        "media_type": artifact.media_type,
+        "size_bytes": artifact.size_bytes,
+        "created_at": _iso(artifact.created_at),
+        "event_seq": event_seq,
+        "url": url,
+        "preview_url": f"{url}?preview=1" if artifact.media_type in _PREVIEW_MEDIA_TYPES else None,
+        "step_id": metadata.get("step_id") if isinstance(metadata.get("step_id"), str) else None,
+        "page_url": metadata.get("url") if isinstance(metadata.get("url"), str) else None,
+        "title": metadata.get("title") if isinstance(metadata.get("title"), str) else None,
+    }
+
+
+async def _activity_context(run: Run, session: AsyncSession) -> dict[str, Any]:
+    """Load bounded activity and artifacts with totals across the whole run."""
+    steps, actions = (
+        await session.execute(
+            select(
+                func.count(func.distinct(AgentEvent.step_id)),
+                func.count().filter(AgentEvent.event_type == "action_requested"),
+            ).where(AgentEvent.run_id == run.id)
+        )
+    ).one()
+    artifact_count = await session.scalar(
+        select(func.count()).select_from(Artifact).where(Artifact.run_id == run.id)
+    )
+    artifacts_query = (
+        select(Artifact)
+        .where(Artifact.run_id == run.id)
+        .order_by(Artifact.created_at.desc(), Artifact.id.desc())
+    )
+    artifacts = list((await session.scalars(artifacts_query.limit(_ARTIFACT_LIMIT))).all())
+    latest = await session.scalar(
+        artifacts_query.where(
+            Artifact.kind == "screenshot", Artifact.media_type.in_(_PREVIEW_MEDIA_TYPES)
+        ).limit(1)
+    )
+    displayed = artifacts + ([latest] if latest is not None else [])
+    event_seqs: dict[uuid.UUID, int] = {}
+    if displayed:
+        ids = {artifact.id for artifact in displayed}
+        linked = await session.execute(
+            select(Artifact.id, AgentEvent.seq)
+            .join(AgentEvent, Artifact.event_id == AgentEvent.id)
+            .where(Artifact.id.in_(ids), AgentEvent.run_id == run.id)
+        )
+        event_seqs.update(linked.all())
+        # Screenshot/checkpoint writers store the reference in the event payload.
+        refs = await session.execute(
+            select(AgentEvent.metadata_["artifact_id"].astext, AgentEvent.seq)
+            .where(
+                AgentEvent.run_id == run.id,
+                AgentEvent.metadata_["artifact_id"].astext.in_([str(id_) for id_ in ids]),
+            )
+            .order_by(AgentEvent.seq)
+        )
+        event_seqs.update((uuid.UUID(id_), seq) for id_, seq in refs)
+    elapsed = None
+    if run.started_at is not None:
+        start = (
+            run.started_at.replace(tzinfo=UTC) if run.started_at.tzinfo is None else run.started_at
+        )
+        end = run.finished_at or datetime.now(UTC)
+        end = end.replace(tzinfo=UTC) if end.tzinfo is None else end
+        elapsed = max(0, (end - start).total_seconds())
+    return {
+        "events": await _load_events(session, run.id),
+        "summary": {
+            "steps": steps,
+            "actions": actions,
+            "artifacts": artifact_count,
+            "elapsed_seconds": elapsed,
+        },
+        "artifacts": [_artifact_row(item, event_seqs.get(item.id)) for item in artifacts],
+        "latest_screenshot": _artifact_row(latest, event_seqs.get(latest.id)) if latest else None,
+        "event_limit": _BOOTSTRAP_EVENT_LIMIT,
+        "artifact_limit": _ARTIFACT_LIMIT,
+    }
+
+
+@router.get("/runs/{run_id}/activity")
+async def run_activity(
+    run_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: CurrentUser,
+) -> dict[str, Any]:
+    """Refresh observable activity, file outputs and persisted run status."""
+    run = await session.get(Run, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    return {
+        **await _activity_context(run, session),
+        "status": run.status,
+        "cost": await session.run_sync(lambda sync: run_cost(sync, run.id)),
+        "started_at": _iso(run.started_at),
+        "finished_at": _iso(run.finished_at),
+    }
+
+
+@router.get("/runs/{run_id}/artifacts/{artifact_id}")
+async def download_artifact(
+    run_id: uuid.UUID,
+    artifact_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: CurrentUser,
+    preview: bool = False,
+) -> Response:
+    """Download an authenticated run's file or preview a safe raster image."""
+    artifact = await session.scalar(
+        select(Artifact).where(Artifact.id == artifact_id, Artifact.run_id == run_id)
+    )
+    if artifact is None:
+        raise HTTPException(status_code=404, detail="artifact not found")
+    if preview and artifact.media_type not in _PREVIEW_MEDIA_TYPES:
+        raise HTTPException(status_code=415, detail="preview is only available for raster images")
+    try:
+        key = storage_key_for(artifact.sha256)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="artifact not found") from None
+    if key != artifact.storage_key:
+        raise HTTPException(status_code=404, detail="artifact not found")
+    try:
+        data = await run_in_threadpool(lambda: create_artifact_store().get(key))
+    except ArtifactNotFoundError, FileNotFoundError:
+        raise HTTPException(status_code=404, detail="artifact is no longer retained") from None
+    extension = _PREVIEW_MEDIA_TYPES.get(artifact.media_type, "bin")
+    disposition = "inline" if preview else "attachment"
+    return Response(
+        data,
+        media_type=artifact.media_type if preview else "application/octet-stream",
+        headers={
+            "Content-Disposition": f'{disposition}; filename="{artifact.id}.{extension}"',
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+        },
+    )
 
 
 def _flash_redirect(url: str, *, error: str | None = None) -> RedirectResponse:
@@ -286,7 +441,7 @@ async def run_detail(
     pending = await session.run_sync(
         lambda sync: approval_service.get_pending_approval(sync, run_id)
     )
-    events = await _load_events(session, run_id)
+    activity = await _activity_context(run, session)
     ctx = await _run_context(run, session, pending=pending)
     return templates.TemplateResponse(
         request,
@@ -294,8 +449,7 @@ async def run_detail(
         {
             "user": user,
             "run": ctx,
-            "events": events,
-            "events_json": json.dumps(events),
+            **activity,
             "error": request.query_params.get("error"),
             "vnc_url": "/vnc/",
         },

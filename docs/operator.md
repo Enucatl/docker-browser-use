@@ -86,10 +86,32 @@ Steps:
 2. On the run page, confirm status moves toward `succeeded` (or watch live events).
 3. Optional: **Pause** then **Resume**, or **Cancel**, while a longer scripted
    run is active (needs a real Jev script or a slow page — see limitations).
-4. Open **Open live view (/vnc)** (Authelia again if prompted) to see headed Chrome.
+4. Open **Open live view** (Authelia again if prompted) to see headed Chrome.
 
 With real Jev credentials configured, use a concrete browse goal. Chromium has
 outbound access through the dedicated `browser_egress` network.
+
+## Run workspace
+
+The run page puts status and controls beside the browser, with **Activity** and
+**Run summary** on the right. On smaller screens these sections stack vertically.
+Activity describes recorded execution; select an event or a **Timeline** marker
+to inspect its URL, action, duration, and related files. **Technical details**
+reveals the redacted audit payload. Filter the feed by category or errors.
+
+Active runs embed the shared live Chrome session. Use **Take control** before
+interacting. Finished runs show their latest recorded screenshot, or an empty
+state if none was captured. **Artifacts** lists saved screenshots and state files;
+**Preview** displays a recorded image and **Download** retrieves the stored file.
+A preview is a snapshot, not a replay of the live browser. Retained-away files
+return an unavailable response.
+
+The timeline and activity display the latest 100 audit events in chronological
+order; artifact listings show the latest 100 files. Summary totals cover the
+whole run. Live events reconnect automatically, and status, totals, and artifacts
+refresh every five seconds while active. Steps count distinct recorded execution
+steps; actions count requests, including retries. Estimated cost is shown only
+when pricing data exists. Forms remain usable without JavaScript.
 
 ## Pause / approve / takeover
 

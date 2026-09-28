@@ -13,6 +13,7 @@ from queue import Empty, SimpleQueue
 from typing import Any
 
 from browser_use_agent.db.models import AgentEvent
+from browser_use_agent.web.presentation import event_display
 
 # Bound WS JSON metadata size; large state belongs in artifacts (T007).
 MAX_WS_METADATA_BYTES = 16_384
@@ -34,6 +35,8 @@ class RunEventMessage:
         source: ``replay`` for historical rows, ``live`` for bus publishes.
         truncated: True when payload was size-capped.
         detail: Optional human-readable note for control/error messages.
+        step_id: Execution step grouping when recorded.
+        display: Observable activity labels shared with the HTML bootstrap.
     """
 
     type: str
@@ -47,6 +50,8 @@ class RunEventMessage:
     source: str | None = None
     truncated: bool = False
     detail: str | None = None
+    step_id: uuid.UUID | None = None
+    display: Mapping[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-ready dictionary (omits null optional fields).
@@ -73,6 +78,10 @@ class RunEventMessage:
             data["truncated"] = True
         if self.detail is not None:
             data["detail"] = self.detail
+        if self.step_id is not None:
+            data["step_id"] = str(self.step_id)
+        if self.display is not None:
+            data["display"] = dict(self.display)
         return data
 
 
@@ -134,6 +143,8 @@ def message_from_event(event: AgentEvent, *, source: str) -> RunEventMessage:
         payload=payload,
         source=source,
         truncated=truncated,
+        step_id=event.step_id,
+        display=event_display(event),
     )
 
 

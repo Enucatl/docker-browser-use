@@ -1,14 +1,16 @@
-"""Smoke tests for the minimal Agent Web UI (T024)."""
+"""Regression checks for the browser execution workspace and HTML controls."""
 
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import time
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,7 +21,7 @@ from browser_use_agent.api.app import create_app
 from browser_use_agent.audit.writer import AuditWriter
 from browser_use_agent.config import AppSettings
 from browser_use_agent.db.migrate import upgrade_head
-from browser_use_agent.db.models import HumanApproval, Run
+from browser_use_agent.db.models import Artifact, CostEntry, HumanApproval, Run
 from browser_use_agent.runs import RunStatus
 from browser_use_agent.services import runs as run_service
 
@@ -202,7 +204,7 @@ def test_create_run_form_redirects_to_detail(api_client: TestClient) -> None:
     detail = api_client.get(location)
     assert detail.status_code == 200
     assert "UI start me" in detail.text
-    assert "Live events" in detail.text
+    assert "Activity" in detail.text
     assert "/vnc/" in detail.text
     assert (
         "Take control" in detail.text or "Release control" in detail.text or "Cancel" in detail.text
@@ -274,6 +276,7 @@ def test_run_detail_approve_reject(api_client: TestClient, postgres_url: str) ->
                 event_id=event.id,
                 status="requested",
                 reason="checkout click",
+                metadata_={"target": '<img src=x onerror="alert(1)">'},
             )
         )
         run.status = RunStatus.AWAITING_APPROVAL.value
@@ -287,6 +290,10 @@ def test_run_detail_approve_reject(api_client: TestClient, postgres_url: str) ->
     assert page.status_code == 200
     assert "Approval required" in page.text
     assert "checkout click" in page.text
+    assert f'action="/runs/{run_id}/approve"' in page.text
+    assert f'action="/runs/{run_id}/reject"' in page.text
+    assert '<img src=x onerror="alert(1)">' not in page.text
+    assert "<pre" not in re.sub(r"<details\b[^>]*>.*?</details>", "", page.text, flags=re.S)
 
     approved = api_client.post(
         f"/runs/{run_id}/approve",
@@ -361,3 +368,146 @@ def test_ui_requires_remote_user_when_auth_required(auth_client: TestClient) -> 
     ok = auth_client.get("/", headers={"Remote-User": "alice"})
     assert ok.status_code == 200
     assert "alice" in ok.text
+
+
+@pytest.mark.parametrize(
+    ("status", "actions", "active"),
+    [
+        (RunStatus.QUEUED, {"cancel"}, True),
+        (RunStatus.RUNNING, {"pause", "cancel", "take-control"}, True),
+        (RunStatus.PAUSED, {"resume", "cancel", "take-control"}, True),
+        (RunStatus.AWAITING_HUMAN, {"cancel", "release-control"}, True),
+        (RunStatus.SUCCEEDED, set(), False),
+        (RunStatus.FAILED, {"retry"}, False),
+        (RunStatus.CANCELLED, set(), False),
+    ],
+)
+def test_workspace_controls_follow_run_status(
+    api_client: TestClient,
+    postgres_url: str,
+    status: RunStatus,
+    actions: set[str],
+    active: bool,
+) -> None:
+    """Show valid controls and embed the shared browser only for active runs."""
+    engine = create_engine(postgres_url)
+    try:
+        with Session(engine) as session:
+            run = run_service.create_run(session, "Inspect the workspace")
+            run.status = status.value
+            run_id = run.id
+            session.commit()
+        page = api_client.get(f"/runs/{run_id}")
+    finally:
+        engine.dispose()
+
+    assert page.status_code == 200
+    assert set(re.findall(rf'action="/runs/{run_id}/([a-z-]+)"', page.text)) == actions
+    assert ("<iframe" in page.text) is active
+    assert "Activity" in page.text
+    assert "Timeline" in page.text
+    assert "Artifacts" in page.text
+    assert "Run summary" in page.text
+    if active:
+        assert "shared" in page.text.lower()
+    else:
+        assert "No screenshot" in page.text
+
+
+def test_activity_is_chronological_and_technical_data_is_disclosed(
+    api_client: TestClient, postgres_url: str
+) -> None:
+    """Render observable activity safely while keeping model payloads collapsed."""
+    unsafe = '</script><script>alert("unsafe")</script>'
+    rationale = "PRIVATE_MODEL_RATIONALE_MARKER"
+    engine = create_engine(postgres_url)
+    try:
+        with Session(engine) as session:
+            run = run_service.create_run(session, f"Inspect {unsafe}")
+            writer = AuditWriter(session)
+            writer.append(
+                run.id,
+                "decision",
+                {"kind": "click", "rationale": rationale, "raw_marker": unsafe},
+                actor="agent",
+            )
+            writer.append(
+                run.id,
+                "action_completed",
+                {"kind": "click", "message": "Opened the requested page"},
+                actor="agent",
+            )
+            run_id = run.id
+            session.commit()
+        page = api_client.get(f"/runs/{run_id}")
+    finally:
+        engine.dispose()
+
+    assert page.status_code == 200
+    assert unsafe not in page.text
+    assert "&lt;script&gt;" in page.text
+    assert "Action selected" in page.text
+    assert "Clicked" in page.text
+    assert "Opened the requested page" in page.text
+    sequence = re.findall(r'<li\b[^>]*data-seq="(\d+)"', page.text)
+    assert len(sequence) >= 3
+    assert [int(seq) for seq in sequence] == sorted(int(seq) for seq in sequence)
+
+    disclosures = re.findall(r"<details\b[^>]*>.*?</details>", page.text, flags=re.S)
+    assert disclosures
+    assert all(not re.search(r"\bopen\b", item.split(">", 1)[0]) for item in disclosures)
+    visible = re.sub(r"<details\b[^>]*>.*?</details>", "", page.text, flags=re.S)
+    visible = re.sub(r"<script\b[^>]*>.*?</script>", "", visible, flags=re.S)
+    assert "<pre" not in visible
+    assert rationale not in visible
+
+
+def test_completed_workspace_uses_recorded_screenshot_and_run_totals(
+    api_client: TestClient, postgres_url: str
+) -> None:
+    """Show persisted metrics, screenshot previews, and artifact downloads."""
+    engine = create_engine(postgres_url)
+    try:
+        with Session(engine) as session:
+            run = run_service.create_run(session, "Read the requested page")
+            writer = AuditWriter(session)
+            for _ in range(2):
+                step_id = uuid.uuid4()
+                writer.append(run.id, "observation_captured", step_id=step_id)
+                writer.append(run.id, "action_requested", {"kind": "click"}, step_id=step_id)
+            screenshot_id = uuid.uuid4()
+            screenshot_event = writer.append(
+                run.id, "screenshot_captured", {"artifact_id": str(screenshot_id)}
+            )
+            session.add(
+                Artifact(
+                    id=screenshot_id,
+                    run_id=run.id,
+                    event_id=screenshot_event.id,
+                    kind="screenshot",
+                    media_type="image/png",
+                    size_bytes=123,
+                    sha256="f" * 64,
+                    storage_key="f" * 64,
+                )
+            )
+            session.add(CostEntry(run_id=run.id, kind="model", amount=Decimal("0.1234")))
+            run.status = RunStatus.SUCCEEDED.value
+            run.started_at = datetime.now(UTC) - timedelta(seconds=125)
+            run.finished_at = run.started_at + timedelta(seconds=125)
+            run_id = run.id
+            session.commit()
+        page = api_client.get(f"/runs/{run_id}")
+    finally:
+        engine.dispose()
+
+    assert page.status_code == 200
+    assert "<iframe" not in page.text
+    artifact_url = f"/runs/{run_id}/artifacts/{screenshot_id}"
+    assert f'src="{artifact_url}?preview=1"' in page.text
+    assert f'href="{artifact_url}" download' in page.text
+    assert re.search(r'id="summary-steps"[^>]*>2<', page.text)
+    assert re.search(r'id="summary-actions"[^>]*>2<', page.text)
+    assert re.search(r'id="summary-artifacts"[^>]*>1<', page.text)
+    assert "125s" in page.text
+    assert "$0.12340000 USD" in page.text

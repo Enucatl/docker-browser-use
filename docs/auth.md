@@ -5,8 +5,10 @@ browser-facing Origin/Host checks for the private UI/API.
 
 ## Production path
 
-Traefik labels use `middlewares=authelia@docker,secured@file`. After Authelia
-allows the request, Traefik injects:
+Traefik labels use
+`middlewares=browser-use-strip-identity@docker,authelia@docker,secured@file`.
+The first middleware removes all four incoming `Remote-*` identity headers.
+After Authelia allows the request, Traefik injects its response headers:
 
 | Header | Meaning |
 | --- | --- |
@@ -27,9 +29,40 @@ methods and WebSocket upgrades with a browser `Origin` must match that origin.
 speak HTTP to the controller process can set them. Trust is valid only because:
 
 1. The controller does not publish host ports (`ports: []`).
-2. The only public ingress is Traefik on `traefik_proxy` with Authelia forward-auth.
+2. The controller and noVNC use the dedicated `browser_use_proxy` bridge with
+   Traefik. Neither joins the shared `traefik_proxy` network, so unrelated
+   containers there cannot connect directly to either backend.
 3. Clients on the internal Compose network are treated as part of the trusted
    operator plane (same assumption as other homelab apps).
+
+The application does not check the TCP peer: internal peers and the Docker host
+can still supply identity headers. Keep unrelated containers off both Browser
+Use networks. NoVNC uses the same identity stripping and Authelia chain.
+This follows Authelia's [trusted remote networks guidance](https://www.authelia.com/integration/trusted-header-sso/introduction/)
+and Traefik's [empty-value header removal](https://doc.traefik.io/traefik/reference/routing-configuration/http/middlewares/headers/).
+
+## Network setup and migration
+
+The sibling Traefik Compose project owns the named `browser_use_proxy` network;
+Browser Use declares it external. Docker assigns addresses automatically; no
+subnet or source-IP allowlist is configured. The bridge retains outbound access
+for the controller's model APIs; the `default` network remains internal.
+
+Apply the updated Traefik Compose file first, then recreate the Browser Use
+ingress services to remove their old shared-network attachments:
+
+```bash
+cd /opt/docker/traefik
+COMPOSE_ENV_FILES=../.env docker compose up -d traefik
+cd /opt/docker/browser-use
+COMPOSE_ENV_FILES=../.env docker compose up -d --no-deps controller novnc
+docker network inspect browser_use_proxy --format '{{range .Containers}}{{.Name}} {{end}}'
+```
+
+The dedicated network should contain only Traefik, controller and noVNC. Verify
+controller and noVNC are absent from `docker network inspect traefik_proxy`, then
+check UI and `/vnc/` login through Authelia. Both Compose changes are required;
+editing the files alone does not change running containers.
 
 Do not expose the controller without Authelia. Do not treat these headers as
 proof of identity on the open internet.

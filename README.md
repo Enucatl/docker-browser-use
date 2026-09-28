@@ -32,9 +32,11 @@ with `DATABASE_*` set you can also run
 
 ## Compose (homelab)
 
-Prerequisites: Traefik (`traefik_proxy`), Authelia middlewares, `/opt/docker/.env`
+Prerequisites: Traefik (dedicated `browser_use_proxy` network), Authelia middlewares, `/opt/docker/.env`
 (`DOCKER_DOMAIN`), and hardening profiles from
 [`../compose-security-baseline`](../compose-security-baseline).
+Apply the sibling Traefik Compose configuration first to create the network;
+see [network setup and migration](docs/auth.md#network-setup-and-migration).
 
 ```bash
 # Compose defaults live in docker-compose.yml; the shared env only provides DOCKER_DOMAIN.
@@ -55,7 +57,7 @@ Put the official TypeSafe API key from `console.typesafe.ai` in
 `https://api.typesafe.ai/v1/systemone` with a Bearer header.
 
 Public URL: `https://browser-use.${DOCKER_DOMAIN}` behind Traefik with
-`authelia@docker,secured@file`. Authelia’s wildcard `*.docker.home.arpa` rule
+`browser-use-strip-identity@docker,authelia@docker,secured@file`. Authelia’s wildcard `*.docker.home.arpa` rule
 already allows `group:admins`. Auth details: [`docs/auth.md`](docs/auth.md).
 
 ### What runs where

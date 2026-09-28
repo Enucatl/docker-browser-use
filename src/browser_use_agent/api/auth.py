@@ -3,8 +3,8 @@
 Identity headers (``Remote-User``, ``Remote-Groups``, ``Remote-Name``,
 ``Remote-Email``) are injected by Traefik after Authelia forward-auth. They are
 spoofable if a client can reach the controller without Traefik; production
-relies on Compose keeping the public path Authelia-gated (``ports: []``,
-``traefik_proxy`` only via the labeled router). See ``docs/auth.md``.
+relies on Compose network isolation (``ports: []``, dedicated
+``browser_use_proxy`` ingress, trusted internal peers). See ``docs/auth.md``.
 """
 
 from __future__ import annotations

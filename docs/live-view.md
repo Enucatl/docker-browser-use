@@ -11,14 +11,14 @@ https://browser-use.${DOCKER_DOMAIN}/vnc/
 
 Example: `https://browser-use.docker.home.arpa/vnc/`.
 
-Traefik routing (labels only; no global Traefik/Authelia repo edits):
+Traefik routing (dedicated `browser_use_proxy` network; see [setup](auth.md#network-setup-and-migration)):
 
 | Piece | Value |
 | --- | --- |
 | Host | `browser-use.${DOCKER_DOMAIN}` |
 | Path | `PathPrefix(/vnc)` (priority 200, paperless-ai-style) |
 | Strip | middleware `browser-use-vnc-strip` → `/vnc` |
-| Auth | `authelia@docker,secured@file` |
+| Auth | `browser-use-strip-identity@docker,authelia@docker,secured@file` |
 | Backend | `novnc:6080` (websockify + noVNC assets) |
 
 The index page opens `vnc.html` with `path=vnc/websockify` so the WebSocket still
@@ -29,7 +29,7 @@ matches the `/vnc` prefix before stripprefix.
 ```text
 Operator Firefox
   → Traefik HTTPS + Authelia + secured@file
-  → novnc (websockify :6080) on traefik_proxy + internal net
+  → novnc (websockify :6080) on browser_use_proxy + internal net
   → browser:5900 (x11vnc, view-only) on the internal default net
   → Xvfb :99 ← headed Chromium
 
@@ -82,7 +82,7 @@ Full Authelia login may not be exercisable from every automation host. Checklist
    `https://browser-use.${DOCKER_DOMAIN}/vnc/` → Authelia challenge → noVNC canvas
    shows the X session / Chromium window.
 6. Confirm middleware chain in Traefik (router `browser-use-vnc`) includes
-   `browser-use-vnc-strip`, `authelia@docker`, `secured@file`.
+   `browser-use-vnc-strip`, `browser-use-strip-identity@docker`, `authelia@docker`, `secured@file`.
 7. View-only: mouse/keyboard in noVNC should not control Chrome until T023.
 
 If Authelia cannot be completed here, steps 1–4 plus Traefik label review still

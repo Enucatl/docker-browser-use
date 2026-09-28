@@ -47,6 +47,9 @@ docker inspect "$(docker compose ps -q browser)" \
 
 ## C. Authelia + UI
 
+- [ ] `browser_use_proxy` contains only Traefik, controller and noVNC
+- [ ] Controller and noVNC are absent from `traefik_proxy`
+- [ ] Both routers strip incoming identity headers before `authelia@docker`
 - [ ] `https://browser-use.${DOCKER_DOMAIN}/` redirects/challenges via Authelia
 - [ ] After login (admins group), **New run** form is visible
 - [ ] Unauthenticated access to `/` does not serve the app without Authelia

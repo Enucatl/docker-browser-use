@@ -9,7 +9,7 @@ Implementation tracking: [`task_ledger.md`](../task_ledger.md).
 | --- | --- |
 | Docker + Compose | Project lives at `/opt/docker/browser-use` |
 | Shared env | `/opt/docker/.env` provides `DOCKER_DOMAIN`; export `COMPOSE_ENV_FILES=../.env` in the shell/systemd unit. |
-| External network | `traefik_proxy` already exists (Traefik) |
+| External network | Dedicated `browser_use_proxy`, created by the sibling Traefik Compose project; see [migration](auth.md#network-setup-and-migration) |
 | Authelia | Middleware `authelia@docker` + `secured@file`; wildcard `*.docker.home.arpa` already allows `group:admins` |
 | Hardening profiles | Sibling repo [`../compose-security-baseline`](../../compose-security-baseline) (`hardening.yml`) |
 | Secrets | `./secrets/postgres_password`, `jev_api_key`, `openrouter_api_key` (see [`../secrets/README.md`](../secrets/README.md)); Puppet ACLs for remapped uid `100999` |
@@ -155,7 +155,8 @@ Controller / novnc use `hardened-medium` / `hardened-tiny`. Postgres uses the
 baseline `postgres` profile.
 
 **CDP and raw VNC must never be host-published or Traefik-routed.** Only the
-HTTP noVNC edge (`/vnc`) and the controller UI/API are on `traefik_proxy`.
+HTTP noVNC edge (`/vnc`) and the controller UI/API are on `browser_use_proxy`
+with Traefik. Neither joins the shared `traefik_proxy` network.
 
 ## Known limitations (Phase 1)
 

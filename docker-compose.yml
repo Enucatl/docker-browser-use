@@ -190,7 +190,7 @@ services:
       - "traefik.http.routers.browser-use-vnc-slash.tls=true"
       - "traefik.http.routers.browser-use-vnc-slash.priority=210"
       - "traefik.http.routers.browser-use-vnc-slash.service=noop@internal"
-      - "traefik.http.routers.browser-use-vnc-slash.middlewares=browser-use-vnc-slash"
+      - "traefik.http.routers.browser-use-vnc-slash.middlewares=public-rate-limit@file,browser-use-vnc-slash"
       - "traefik.http.middlewares.browser-use-vnc-slash.redirectregex.regex=^https?://([^/]+)/vnc$"
       - "traefik.http.middlewares.browser-use-vnc-slash.redirectregex.replacement=https://$${1}/vnc/"
     networks:

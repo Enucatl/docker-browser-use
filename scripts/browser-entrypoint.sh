@@ -46,6 +46,18 @@ for certificate in "${CA_DIR}"/*.pem; do
 done
 rm -rf "${CA_DIR}"
 
+# Install the Browser Use client identity in Chromium's NSS database for mTLS.
+if [ -r /run/browser-use-mtls/client.crt ] && [ -r /run/browser-use-mtls/client.key ]; then
+  CLIENT_P12="$(mktemp /tmp/chromium/browser-use-client.XXXXXX.p12)"
+  openssl pkcs12 -export \
+    -in /run/browser-use-mtls/client.crt \
+    -inkey /run/browser-use-mtls/client.key \
+    -out "${CLIENT_P12}" \
+    -passout pass:browser-use-import
+  pk12util -i "${CLIENT_P12}" -d "sql:${NSS_DB}" -W browser-use-import
+  rm -f "${CLIENT_P12}"
+fi
+
 # Drop stale singleton locks left by a previous container instance on this volume.
 rm -f \
   "${USER_DATA_DIR}/SingletonLock" \

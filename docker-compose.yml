@@ -125,8 +125,8 @@ services:
     environment:
       - TZ=Europe/Zurich
       - CHROME_USER_DATA_DIR=/data/chrome-profiles/default
-      # T022 view-only; interactive takeover is T023.
-      - VNC_VIEW_ONLY=${VNC_VIEW_ONLY:-true}
+      # Use Take control to pause the agent before interacting with Chrome.
+      - VNC_VIEW_ONLY=false
       - CHROMIUM_FLAGS=--disable-gpu --disable-dev-shm-usage
     restart: unless-stopped
     # Intentionally empty: do not publish CDP (9222) or VNC (5900) to the host.
@@ -136,6 +136,8 @@ services:
     volumes:
       - chrome_profiles:/data/chrome-profiles
       - browser_downloads:/data/downloads
+      - ./secrets/browser-use.crt:/run/browser-use-mtls/client.crt:ro
+      - ./secrets/browser-use.key:/run/browser-use-mtls/client.key:ro
       - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
     networks:
       - default

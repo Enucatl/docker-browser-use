@@ -155,6 +155,12 @@ class TakeoverGuardedBrowserPort:
         """
         return await self.inner.screenshot()
 
+    async def read_page(self, offset: int = 0) -> BrowserObservation:
+        """Read research text only while the agent owns browser control."""
+        if await self._held():
+            raise TakeoverActiveError("takeover_active: research page read refused")
+        return await self.inner.read_page(offset)
+
     async def execute(self, action: AgentAction) -> ActionExecutionResult:
         """Refuse agent actions while takeover is active; otherwise execute.
 

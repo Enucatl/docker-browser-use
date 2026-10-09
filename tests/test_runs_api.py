@@ -199,3 +199,70 @@ def test_stop_run_sets_cancelled(api_client: TestClient) -> None:
     again = api_client.post(f"/api/runs/{run_id}/stop")
     assert again.status_code == 200
     assert again.json()["status"] == RunStatus.CANCELLED.value
+
+
+def test_research_api_validation_and_credentials(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reject invalid fields and unavailable models before a run is created."""
+    monkeypatch.setattr(
+        "browser_use_agent.api.routes.runs.require_research_credentials",
+        lambda: (_ for _ in ()).throw(ValueError("Research requires real credentials")),
+    )
+    assert (
+        api_client.post(
+            "/api/runs", json={"goal": "research", "output_fields": {" ": "description"}}
+        ).status_code
+        == 422
+    )
+    response = api_client.post(
+        "/api/runs", json={"goal": "research", "output_fields": {"name": "description"}}
+    )
+    assert response.status_code == 503
+    assert api_client.get("/api/runs").json() == []
+
+
+def test_research_api_returns_saved_result(
+    api_client: TestClient, postgres_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Expose persisted answers and evidence alongside normalized fields."""
+    monkeypatch.setattr(
+        "browser_use_agent.api.routes.runs.require_research_credentials", lambda: None
+    )
+    response = api_client.post(
+        "/api/runs",
+        json={"goal": "research", "output_fields": {" headquarters ": " City and country "}},
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["output_fields"] == {"headquarters": "City and country"}
+    assert body["result"] is None
+    source = {
+        "evidence_id": "e1",
+        "url": "https://example.test",
+        "title": "Source",
+        "excerpt": "Located in London",
+    }
+    result = {"headquarters": {"answer": "London", "status": "found", "sources": [source]}}
+    engine = create_engine(postgres_url)
+    with sessionmaker(bind=engine)() as session:
+        run = session.get(Run, uuid.UUID(body["id"]))
+        run.metadata_ = {
+            **run.metadata_,
+            "result": result,
+            "evidence": [
+                {
+                    "id": "e1",
+                    "field": "headquarters",
+                    "value": "London",
+                    "excerpt": source["excerpt"],
+                    "url": source["url"],
+                    "title": "Source",
+                }
+            ],
+        }
+        session.commit()
+    engine.dispose()
+    saved = api_client.get("/api/runs/" + body["id"]).json()
+    assert saved["result"] == result
+    assert saved["evidence"][0]["id"] == "e1"

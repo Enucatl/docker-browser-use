@@ -8,7 +8,10 @@ the T016 text LLM gate in the agent loop, or a test stub).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
+from hashlib import sha256
 from typing import Any, Protocol, runtime_checkable
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from browser_use_agent.policy.actions import (
     ActionKind,
@@ -20,6 +23,122 @@ from browser_use_agent.policy.actions import (
 
 class TypeTextBlockedError(RuntimeError):
     """Raised when ``TYPE_TEXT`` reaches execute without ``params.text``."""
+
+
+def _scrub_page_value(value: Any, secrets: set[str]) -> Any:
+    """Remove captured form values and secret patterns before serialization."""
+    from browser_use_agent.security.redaction import REDACTED, is_deny_field, redact_text
+
+    if isinstance(value, Enum):
+        return value
+    if isinstance(value, str):
+        if value.startswith(("http://", "https://")):
+            parts = urlsplit(value)
+            query = parse_qsl(parts.query, keep_blank_values=True)
+            if parts.username is not None or any(is_deny_field(key) for key, _ in query):
+                value = urlunsplit(
+                    (
+                        parts.scheme,
+                        parts.netloc.rsplit("@", 1)[-1],
+                        parts.path,
+                        urlencode(
+                            [(key, REDACTED if is_deny_field(key) else item) for key, item in query]
+                        ),
+                        parts.fragment,
+                    )
+                )
+        for secret in sorted(secrets, key=len, reverse=True):
+            value = value.replace(secret, REDACTED)
+        return redact_text(value)
+    if isinstance(value, dict):
+        return {key: _scrub_page_value(item, secrets) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_scrub_page_value(item, secrets) for item in value]
+    return value
+
+
+def _safe_page_html(tree: Any) -> tuple[str, set[str]]:
+    """Reuse Browser Use's HTML reader while omitting form control contents."""
+    from browser_use.dom.serializer.html_serializer import HTMLSerializer
+    from browser_use.dom.views import NodeType
+
+    from browser_use_agent.security.redaction import is_deny_field
+
+    secrets: set[str] = set()
+    stack = [tree]
+    while stack:
+        node = stack.pop()
+        attrs = node.attributes or {}
+        sensitive = str(attrs.get("type") or "").strip().lower() == "password" or any(
+            is_deny_field(str(attrs.get(key) or ""))
+            or any(
+                marker in str(attrs.get(key) or "").lower()
+                for marker in ("password", "credential", "token", "secret", "api-key", "api_key")
+            )
+            for key in ("name", "id", "autocomplete")
+        )
+        opaque = node.tag_name == "textarea" or (
+            "contenteditable" in attrs and attrs["contenteditable"] != "false"
+        )
+        if sensitive or opaque:
+            if attrs.get("value"):
+                secrets.add(attrs["value"])
+            if opaque:
+                text = node.get_all_children_text()
+                if text:
+                    secrets.add(text)
+        secrets.update(value for key, value in attrs.items() if value and is_deny_field(key))
+        stack.extend(node.children_and_shadow_roots)
+        if node.content_document:
+            stack.append(node.content_document)
+
+    class SafeHTMLSerializer(HTMLSerializer):
+        """Omit editable values and scrub remaining text and attributes."""
+
+        def serialize(self, node: Any, depth: int = 0) -> str:
+            """Serialize ordinary content without form values."""
+            if node.tag_name in {"input", "textarea", "select"} or (
+                "contenteditable" in node.attributes
+                and node.attributes["contenteditable"] != "false"
+            ):
+                return ""
+            if node.node_type == NodeType.TEXT_NODE:
+                return self._escape_html(_scrub_page_value(node.node_value, secrets))
+            return super().serialize(node, depth)
+
+        def _serialize_attributes(self, attributes: dict[str, str]) -> str:
+            """Exclude credential attributes before creating serialized HTML."""
+            return super()._serialize_attributes(
+                {
+                    key: _scrub_page_value(value, secrets)
+                    for key, value in attributes.items()
+                    if key != "value" and not is_deny_field(key)
+                }
+            )
+
+    return SafeHTMLSerializer().serialize(tree), secrets
+
+
+def _page_chunk(observation: BrowserObservation, content: str, offset: int) -> BrowserObservation:
+    """Attach a bounded chunk and hash of the complete sanitized page."""
+    if offset < 0:
+        raise ValueError("Page text offset must be nonnegative")
+    from browser_use_agent.security.redaction import redact_text
+
+    content = redact_text(content)
+    offset = min(offset, len(content))
+    text = content[offset : offset + 10_000]
+    safe = _scrub_page_value(observation.model_dump(), set())
+    return BrowserObservation.model_validate(
+        {
+            **safe,
+            "page_summary": text,
+            "page_text": text,
+            "page_text_offset": offset,
+            "page_text_remaining": max(0, len(content) - offset - len(text)),
+            "page_text_hash": sha256(content.encode()).hexdigest(),
+        }
+    )
 
 
 @dataclass(slots=True)
@@ -51,6 +170,9 @@ class BrowserPort(Protocol):
         Returns:
             Adapter-ready observation (candidates + page meta).
         """
+
+    async def read_page(self, offset: int = 0) -> BrowserObservation:
+        """Read a bounded chunk of sanitized current page text for research."""
 
     async def execute(self, action: AgentAction) -> ActionExecutionResult:
         """Execute one mapped agent action.
@@ -108,6 +230,7 @@ class FakeBrowserPort:
                 BrowserObservation(url="about:blank", title="Blank"),
             ]
         self._cursor = 0
+        self._current = self.observations[0]
         self.executed: list[AgentAction] = []
         self.type_text_stub = type_text_stub
         self.fail_kinds = set(fail_kinds or ())
@@ -122,8 +245,16 @@ class FakeBrowserPort:
         if self._cursor < len(self.observations):
             obs = self.observations[self._cursor]
             self._cursor += 1
+            self._current = obs
             return obs
         return self.observations[-1]
+
+    async def read_page(self, offset: int = 0) -> BrowserObservation:
+        """Read the latest observed fake page without advancing navigation."""
+        from browser_use_agent.security.redaction import redact_text
+
+        content = redact_text(self._current.page_text or self._current.page_summary or "")
+        return _page_chunk(self._current, content, offset)
 
     async def execute(self, action: AgentAction) -> ActionExecutionResult:
         """Record and optionally fail or complete an action.
@@ -235,13 +366,40 @@ class BrowserUsePort:
         Returns:
             Redaction-safe observation for the Jev adapter.
         """
+        return await self.read_page()
+
+    async def read_page(self, offset: int = 0) -> BrowserObservation:
+        """Read sanitized Browser Use markdown in 10,000-character chunks."""
+        from browser_use.dom.markdown_extractor import (
+            _get_enhanced_dom_tree_from_browser_session,
+            convert_html_to_markdown,
+        )
+
         from browser_use_agent.policy.jev_adapter import observation_from_browser_state
 
         summary = await self.session.get_browser_state_summary(
             include_screenshot=False,
             cached=False,
         )
-        return observation_from_browser_state(summary)
+        observation = observation_from_browser_state(summary)
+        try:
+            source_url = await self.session.get_current_page_url()
+            if source_url != observation.url:
+                raise ValueError("Page changed before reading")
+            tree = await _get_enhanced_dom_tree_from_browser_session(self.session)
+            html, secrets = _safe_page_html(tree)
+            observation = BrowserObservation.model_validate(
+                _scrub_page_value(observation.model_dump(), secrets)
+            )
+            content, _, _ = convert_html_to_markdown(html)
+            if await self.session.get_current_page_url() != source_url:
+                raise ValueError("Page changed while reading")
+        except Exception as exc:
+            # Ordinary runs still observe elements when the reader is unavailable;
+            # empty text fails closed when the research loop tries to extract.
+            observation.browser_errors.append(f"Page reader unavailable: {type(exc).__name__}")
+            content = ""
+        return _page_chunk(observation, content, offset)
 
     async def screenshot(self) -> bytes:
         """Capture a PNG viewport screenshot via Browser Use / CDP.

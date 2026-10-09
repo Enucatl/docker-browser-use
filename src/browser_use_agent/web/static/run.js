@@ -272,7 +272,7 @@
       const response = await fetch("/runs/" + encodeURIComponent(cfg.id) + "/activity", { credentials: "same-origin", cache: "no-store" });
       if (!response.ok) throw new Error("HTTP " + response.status);
       const body = await response.json();
-      if (body.status !== cfg.status) { window.location.reload(); return; }
+      if (body.status !== cfg.status || JSON.stringify(body.result) !== JSON.stringify(cfg.result) || JSON.stringify(body.evidence) !== JSON.stringify(cfg.evidence)) { window.location.reload(); return; }
       cfg.startedAt = body.started_at;
       cfg.finishedAt = body.finished_at;
       updateEvents(body.events);

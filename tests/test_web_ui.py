@@ -511,3 +511,78 @@ def test_completed_workspace_uses_recorded_screenshot_and_run_totals(
     assert re.search(r'id="summary-artifacts"[^>]*>1<', page.text)
     assert "125s" in page.text
     assert "$0.12340000 USD" in page.text
+
+
+def test_research_form_rejects_duplicates_and_missing_credentials(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Field mistakes and unavailable models do not create research runs."""
+    response = api_client.post(
+        "/runs", data={"goal": "research", "output_fields": "name: first\nname: second"}
+    )
+    assert "Field names must be unique" in response.text
+    monkeypatch.setattr(
+        "browser_use_agent.web.routes.require_research_credentials",
+        lambda: (_ for _ in ()).throw(ValueError("Research requires real credentials")),
+    )
+    response = api_client.post(
+        "/runs", data={"goal": "research", "output_fields": "name: description"}
+    )
+    assert "Research requires real credentials" in response.text
+    assert api_client.get("/api/runs").json() == []
+
+
+def test_research_answers_download_and_unfinished_evidence(
+    api_client: TestClient, postgres_url: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Render sources safely, download real JSON, and retain unfinished evidence."""
+    monkeypatch.setattr("browser_use_agent.web.routes.require_research_credentials", lambda: None)
+    response = api_client.post(
+        "/runs",
+        data={"goal": "research", "output_fields": "location: City"},
+        follow_redirects=False,
+    )
+    url = response.headers["location"]
+    run_id = uuid.UUID(url.rsplit("/", 1)[-1])
+    assert api_client.get(url + "/result.json").status_code == 404
+    source = {
+        "evidence_id": "e1",
+        "url": "https://example.test/source",
+        "title": "Source page",
+        "excerpt": "Located in London <script>",
+    }
+    result = {"location": {"answer": "London", "status": "found", "sources": [source]}}
+    evidence = [
+        {
+            "id": "e1",
+            "field": "location",
+            "value": "London",
+            "url": source["url"],
+            "title": source["title"],
+            "excerpt": source["excerpt"],
+        }
+    ]
+    engine = create_engine(postgres_url)
+    with sessionmaker(bind=engine)() as session:
+        run = session.get(Run, run_id)
+        run.metadata_ = {**run.metadata_, "result": result, "evidence": evidence}
+        session.commit()
+    page = api_client.get(url).text
+    assert "location · found" in page
+    assert "Located in London &lt;script&gt;" in page
+    assert 'href="https://example.test/source"' in page
+    download = api_client.get(url + "/result.json")
+    assert download.json() == result
+    assert "attachment" in download.headers["content-disposition"]
+    assert api_client.get(url + "/activity").json()["result"] == result
+    with sessionmaker(bind=engine)() as session:
+        run = session.get(Run, run_id)
+        run.status = "cancelled"
+        run.metadata_ = {**run.metadata_, "result": None}
+        session.commit()
+    engine.dispose()
+    page = api_client.get(url).text
+    assert "Unfinished research" in page
+    assert "Collected evidence" in page
+    assert "London" in page
+    assert api_client.get(url + "/result.json").status_code == 404

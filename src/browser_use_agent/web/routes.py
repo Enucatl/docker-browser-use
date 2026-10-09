@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,6 +28,7 @@ from browser_use_agent.artifacts.store import (
 from browser_use_agent.audit.costs import recent_cost_summary, run_cost
 from browser_use_agent.browser.profiles import get_profile, list_profiles
 from browser_use_agent.db.models import AgentEvent, Artifact, HumanApproval, Run
+from browser_use_agent.policy.research import require_research_credentials, validate_output_fields
 from browser_use_agent.runs.status import TERMINAL_STATUSES, RunStatus
 from browser_use_agent.services import approvals as approval_service
 from browser_use_agent.services import runs as run_service
@@ -137,6 +139,9 @@ async def _run_context(
     return {
         "id": str(run.id),
         "goal": run.goal,
+        "output_fields": (run.metadata_ or {}).get("output_fields", {}),
+        "result": (run.metadata_ or {}).get("result"),
+        "evidence": (run.metadata_ or {}).get("evidence", []),
         "status": run.status,
         "profile_id": run.profile_id,
         "created_at": _iso(run.created_at),
@@ -287,10 +292,36 @@ async def run_activity(
     return {
         **await _activity_context(run, session),
         "status": run.status,
+        "result": (run.metadata_ or {}).get("result"),
+        "evidence": (run.metadata_ or {}).get("evidence", []),
         "cost": await session.run_sync(lambda sync: run_cost(sync, run.id)),
         "started_at": _iso(run.started_at),
         "finished_at": _iso(run.finished_at),
     }
+
+
+@router.get("/runs/{run_id}/result.json")
+async def download_result(
+    run_id: uuid.UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: CurrentUser,
+) -> Response:
+    """Download a completed research result as authenticated JSON."""
+    run = await session.get(Run, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    result = (run.metadata_ or {}).get("result")
+    if result is None or run.status in {RunStatus.FAILED.value, RunStatus.CANCELLED.value}:
+        raise HTTPException(status_code=404, detail="research result is not available")
+    return Response(
+        json.dumps(result, ensure_ascii=False, indent=2),
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="{run_id}-result.json"',
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.get("/runs/{run_id}/artifacts/{artifact_id}")
@@ -397,6 +428,7 @@ async def create_run_form(
     user: CurrentUser,
     goal: Annotated[str, Form()],
     profile_id: Annotated[str | None, Form()] = None,
+    output_fields: Annotated[str, Form()] = "",
 ) -> RedirectResponse:
     """Create a run from the new-run form and start the worker."""
     del user  # Identity enforced by middleware; actor is Authelia Remote-User.
@@ -408,8 +440,25 @@ async def create_run_form(
         profile = get_profile(profile_id, settings=request.app.state.settings.browser)
     except KeyError as exc:
         return _flash_redirect("/", error=str(exc))
+    fields = {}
+    for line in output_fields.splitlines():
+        if line.strip():
+            name, sep, description = line.partition(":")
+            if not sep or not name.strip() or not description.strip():
+                return _flash_redirect("/", error="Fields must use name: description format")
+            if name.strip() in fields:
+                return _flash_redirect("/", error="Field names must be unique")
+            fields[name.strip()] = description.strip()
+    try:
+        fields = validate_output_fields(fields)
+        if fields:
+            require_research_credentials()
+    except ValueError as exc:
+        return _flash_redirect("/", error=str(exc))
     run = await session.run_sync(
-        lambda sync: run_service.create_run(sync, stripped, profile_id=profile.id)
+        lambda sync: run_service.create_run(
+            sync, stripped, profile_id=profile.id, output_fields=fields
+        )
     )
     await session.commit()
 

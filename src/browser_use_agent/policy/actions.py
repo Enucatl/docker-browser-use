@@ -53,6 +53,7 @@ class ActionKind(StrEnum):
     NAVIGATE = "NAVIGATE"
     SWITCH_TAB = "SWITCH_TAB"
     DONE = "DONE"
+    EXTRACT = "EXTRACT"
     BITWARDEN_LOGIN = "BITWARDEN_LOGIN"
     BITWARDEN_IDENTITY = "BITWARDEN_IDENTITY"
     BITWARDEN_CARD = "BITWARDEN_CARD"
@@ -194,6 +195,10 @@ class BrowserObservation(BaseModel):
     pixels_above: int = 0
     pixels_below: int = 0
     page_summary: str | None = None
+    page_text: str = ""
+    page_text_offset: int = Field(default=0, ge=0)
+    page_text_remaining: int = Field(default=0, ge=0)
+    page_text_hash: str = ""
     suggested_urls: list[str] = Field(default_factory=list)
     browser_errors: list[str] = Field(default_factory=list)
     tabs: list[BrowserTab] = Field(default_factory=list)

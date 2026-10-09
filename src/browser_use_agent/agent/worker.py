@@ -7,6 +7,7 @@ import logging
 import os
 import uuid
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -54,6 +55,7 @@ from browser_use_agent.policy.jev_client import (
     JevClient,
     load_jev_client_settings,
 )
+from browser_use_agent.policy.research import require_research_credentials
 from browser_use_agent.policy.text_llm import (
     OpenAICompatibleTextLLMClient,
     TextLLMClient,
@@ -249,11 +251,7 @@ class RunWorker:
             session = self.session_factory()
             use_async = isinstance(session, AsyncSession)
             try:
-                run = (
-                    await session.get(Run, run_id)
-                    if use_async
-                    else get_run(session, run_id)
-                )
+                run = await session.get(Run, run_id) if use_async else get_run(session, run_id)
                 if run is None:
                     raise RuntimeError(f"run {run_id} does not exist")
                 try:
@@ -323,6 +321,12 @@ class RunWorker:
                 raise RuntimeError(f"run {run_id} does not exist")
             goal = run.goal
             profile_id = run.profile_id
+            research_metadata = dict(run.metadata_ or {})
+            if research_metadata.get("output_fields") and (
+                self.jev_factory is default_jev_factory
+                or self.text_llm_factory is default_text_llm_factory
+            ):
+                require_research_credentials()
             store = _optional_artifact_store()
             audit = AsyncAuditWriter(session)
             model_calls = AsyncModelCallWriter(session, artifact_store=store)
@@ -460,6 +464,11 @@ class RunWorker:
                 consume_step_retry=signals.consume_step_retry,
                 commit=session.commit,
                 telemetry=self.telemetry,
+                output_fields=research_metadata.get("output_fields"),
+                research_state=research_metadata,
+                persist_research=lambda state: setattr(
+                    run, "metadata_", {**research_metadata, **deepcopy(state)}
+                ),
             )
             outcome = await loop.run()
             await self._persist_async_outcome(session, run_id, outcome)
@@ -503,6 +512,7 @@ class RunWorker:
         run = await session.get(Run, run_id)
         if run is None:
             return
+        await session.refresh(run)
         if run.status == RunStatus.CANCELLED.value and outcome.status != RunStatus.CANCELLED:
             await session.commit()
             return
@@ -541,6 +551,12 @@ class RunWorker:
             run = get_run(session, run_id)
             goal = run.goal
             profile_id = run.profile_id
+            research_metadata = dict(run.metadata_ or {})
+            if research_metadata.get("output_fields") and (
+                self.jev_factory is default_jev_factory
+                or self.text_llm_factory is default_text_llm_factory
+            ):
+                require_research_credentials()
             audit = AuditWriter(session)
             store = _optional_artifact_store()
             model_calls = ModelCallWriter(session, artifact_store=store)
@@ -700,6 +716,11 @@ class RunWorker:
                 consume_step_retry=signals.consume_step_retry,
                 commit=session.commit,
                 telemetry=self.telemetry,
+                output_fields=research_metadata.get("output_fields"),
+                research_state=research_metadata,
+                persist_research=lambda state: setattr(
+                    run, "metadata_", {**research_metadata, **deepcopy(state)}
+                ),
             )
             outcome = await loop.run()
             self._persist_outcome(session, run_id, outcome)
@@ -744,6 +765,7 @@ class RunWorker:
         run = session.get(Run, run_id)
         if run is None:
             return
+        session.refresh(run)
         # Do not overwrite an operator cancel that raced the loop finish.
         if run.status == RunStatus.CANCELLED.value and outcome.status != RunStatus.CANCELLED:
             session.commit()

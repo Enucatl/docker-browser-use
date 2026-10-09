@@ -16,6 +16,23 @@
       <dt>Started</dt><dd>{% if run.started_at %}<time datetime="{{ run.started_at }}">{{ run.started_at }}</time>{% else %}Not started{% endif %}</dd>
       <dt>Finished</dt><dd>{% if run.finished_at %}<time datetime="{{ run.finished_at }}">{{ run.finished_at }}</time>{% else %}—{% endif %}</dd>
     </dl>
+    {% if run.output_fields %}
+    <section class="panel" id="research-result" aria-labelledby="research-title" aria-live="polite">
+      <h2 id="research-title">Research answers</h2>
+      {% if run.result and run.status not in ['failed', 'cancelled'] %}
+      <a href="/runs/{{ run.id }}/result.json" download>Download JSON</a>
+      {% for name, answer in run.result.items() %}
+      <h3>{{ name }} · {{ answer.status }}</h3>
+      <p>{{ answer.answer if answer.answer is not none else ("Sources disagree; review the evidence below" if answer.status == "conflicting" else "No answer found") }}</p>
+      {% if answer.sources %}<ul>{% for source in answer.sources %}<li><a href="{{ source.url }}" rel="noopener noreferrer" target="_blank">{{ source.title or source.url }}</a><blockquote>{{ source.excerpt }}</blockquote></li>{% endfor %}</ul>{% endif %}
+      {% endfor %}
+      {% else %}
+      <p class="muted">{% if run.status in ['failed', 'cancelled'] %}Unfinished research. Collected evidence is not a final answer.{% else %}Research is collecting evidence.{% endif %}</p>
+      <dl>{% for name, description in run.output_fields.items() %}<dt>{{ name }}</dt><dd>{{ description }}</dd>{% endfor %}</dl>
+      {% if run.evidence %}<h3>Collected evidence</h3><ul>{% for item in run.evidence %}<li><strong>{{ item.field }}</strong>: {{ item.value }}<br><a href="{{ item.url }}" target="_blank" rel="noopener noreferrer">{{ item.title or item.url }}</a><blockquote>{{ item.excerpt }}</blockquote></li>{% endfor %}</ul>{% endif %}
+      {% endif %}
+    </section>
+    {% endif %}
     <div class="run-controls" aria-label="Run controls">
       <a class="button" href="{{ vnc_url }}" target="_blank" rel="noopener">Open live view <span aria-hidden="true">↗</span></a>
       {% if run.can_pause %}<form method="post" action="/runs/{{ run.id }}/pause"><button class="secondary" type="submit">Pause</button></form>{% endif %}
@@ -124,6 +141,6 @@
 <template id="event-template"><li><button type="button" class="event-select" aria-pressed="false"><span class="event-icon" aria-hidden="true"></span><span class="event-copy"><strong></strong><span></span></span><time></time></button><details class="event-technical"><summary>Technical details <span class="seq"></span></summary><pre class="payload"></pre><p class="truncation muted small" hidden>Payload truncated. Full data may be available in artifacts.</p></details></li></template>
 {% endblock %}
 {% block scripts %}
-<script id="run-data" type="application/json">{{ {"id": run.id, "status": run.status, "isActive": run.is_active, "startedAt": run.started_at, "finishedAt": run.finished_at, "events": events, "artifacts": artifacts, "summary": summary, "latestScreenshot": latest_screenshot, "eventLimit": event_limit}|tojson }}</script>
+<script id="run-data" type="application/json">{{ {"id": run.id, "status": run.status, "isActive": run.is_active, "startedAt": run.started_at, "finishedAt": run.finished_at, "events": events, "artifacts": artifacts, "summary": summary, "latestScreenshot": latest_screenshot, "eventLimit": event_limit, "result": run.result, "evidence": run.evidence}|tojson }}</script>
 <script src="/static/run.js" defer></script>
 {% endblock %}

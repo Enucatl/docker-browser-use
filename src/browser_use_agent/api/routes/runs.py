@@ -8,13 +8,14 @@ from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from browser_use_agent.api.deps import get_session
 from browser_use_agent.audit.costs import run_cost
 from browser_use_agent.browser.profiles import get_profile
 from browser_use_agent.db.models import Run
+from browser_use_agent.policy.research import require_research_credentials, validate_output_fields
 from browser_use_agent.services import runs as run_service
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
@@ -24,6 +25,14 @@ class CreateRunRequest(BaseModel):
     """Body for ``POST /api/runs``."""
 
     goal: str = Field(min_length=1, description="Natural-language operator goal.")
+    output_fields: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("output_fields")
+    @classmethod
+    def validate_fields(cls, value: dict[str, str]) -> dict[str, str]:
+        """Validate requested research field definitions."""
+        return validate_output_fields(value)
+
     profile_id: str | None = Field(
         default=None,
         description="Browser profile key; defaults to the Testing profile.",
@@ -47,6 +56,9 @@ class RunResponse(BaseModel):
         default=None,
         description="Accumulated USD cost from model calls, when priced.",
     )
+    output_fields: dict[str, str] = Field(default_factory=dict)
+    result: dict | None = None
+    evidence: list[dict] = Field(default_factory=list)
 
 
 async def _to_response(run: Run, session: AsyncSession | None = None) -> RunResponse:
@@ -68,6 +80,9 @@ async def _to_response(run: Run, session: AsyncSession | None = None) -> RunResp
         updated_at=run.updated_at,
         started_at=run.started_at,
         finished_at=run.finished_at,
+        output_fields=(run.metadata_ or {}).get("output_fields", {}),
+        result=(run.metadata_ or {}).get("result"),
+        evidence=(run.metadata_ or {}).get("evidence", []),
         cost=(await session.run_sync(lambda sync: run_cost(sync, run.id)))
         if session is not None
         else None,
@@ -81,6 +96,11 @@ async def create_run(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> RunResponse:
     """Create a run from a natural-language goal and start the worker."""
+    if body.output_fields:
+        try:
+            require_research_credentials()
+        except ValueError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
     try:
         profile = get_profile(body.profile_id, settings=request.app.state.settings.browser)
     except KeyError as exc:
@@ -88,7 +108,9 @@ async def create_run(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
     run = await session.run_sync(
-        lambda sync: run_service.create_run(sync, body.goal.strip(), profile_id=profile.id)
+        lambda sync: run_service.create_run(
+            sync, body.goal.strip(), profile_id=profile.id, output_fields=body.output_fields
+        )
     )
     # Commit before the worker so it sees the queued row.
     await session.commit()

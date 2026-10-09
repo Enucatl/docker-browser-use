@@ -91,6 +91,69 @@ Steps:
 With real Jev credentials configured, use a concrete browse goal. Chromium has
 outbound access through the dedicated `browser_egress` network.
 
+## Research runs with sources
+
+Research needs real Jev and text LLM credentials in `secrets/jev_api_key` and
+`secrets/openrouter_api_key`. Missing credentials
+reject research before creating a run. In **Fields to collect**, enter one
+`name: description` per line. For example:
+
+```text
+Goal: Research Python Software Foundation headquarters and donation refund policy
+
+headquarters: City and country of the Python Software Foundation headquarters
+refund_policy: Donation refund window and main conditions
+```
+
+The same request through the authenticated API is:
+
+```json
+{
+  "goal": "Research Python Software Foundation headquarters and donation refund policy",
+  "output_fields": {
+    "headquarters": "City and country of the Python Software Foundation headquarters",
+    "refund_policy": "Donation refund window and main conditions"
+  }
+}
+```
+
+Submit this body to `POST /api/runs`. Jev searches and navigates the browser,
+then requests extraction from visited pages. The text LLM extracts excerpts and
+synthesizes answers from saved evidence. Page text is untrusted input; credentials
+and password values are redacted before model requests and persistence.
+Research uses the existing 50-step limit and reads long pages in 10,000-character
+chunks. Jev can request further chunks before finishing.
+
+**Research answers** on the run page shows each field, its status, linked sources,
+and supporting excerpts. **Download JSON** downloads the completed field mapping;
+`GET /api/runs/{id}` also returns `output_fields`, `evidence`, and nullable `result`.
+The authenticated download is `/runs/{id}/result.json`.
+
+| Status | Meaning |
+| --- | --- |
+| `found` | A string answer supported by collected source excerpts. |
+| `missing` | No supporting evidence for this field; the answer is `null`. |
+| `conflicting` | Sources disagree; sources cite the conflicting evidence. The answer may describe the disagreement or be `null`. |
+
+A missing field can appear in a completed result when other fields have evidence.
+Empty evidence, invalid model JSON, unverified excerpts or citations, and model
+errors fail the run instead of producing a successful result. Failed or cancelled
+research shows collected evidence as unfinished work. Pause/resume preserves
+findings; retry clears current evidence and the result, keeping audit history.
+Leave **Fields to collect** empty for an ordinary browser run.
+
+The opt-in browser check serves two controlled HTTP pages and verifies extraction
+from ordinary page text plus final source citations. Run it against a test Chrome
+CDP endpoint (the check navigates that browser):
+
+```bash
+BROWSER_RESEARCH_CDP_URL=http://localhost:9222 uv run pytest -q \
+  tests/test_research_reader.py -k two_controlled_pages
+```
+
+For Chrome in a container or on another host, set `BROWSER_RESEARCH_SOURCE_HOST`
+to the address Chrome can use to reach this host's temporary source server.
+
 ## Run workspace
 
 The run page puts status and controls beside the browser, with **Activity** and

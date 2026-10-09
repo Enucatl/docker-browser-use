@@ -7,6 +7,8 @@
   <form method="post" action="/runs" class="stack">
     <label for="goal">Goal</label>
     <textarea id="goal" name="goal" rows="5" required placeholder="Open example.com and summarize the homepage"></textarea>
+    <label for="output_fields">Fields to collect (optional, one name: description per line)</label>
+    <textarea id="output_fields" name="output_fields" rows="3" placeholder="headquarters: City and country&#10;refund_policy: Window and conditions"></textarea>
     <label for="profile_id">Chrome profile</label>
     <select id="profile_id" name="profile_id">
       {% for profile in profiles %}

@@ -16,6 +16,7 @@ from browser_use_agent.agent.controls import (
 )
 from browser_use_agent.audit.writer import AuditWriter
 from browser_use_agent.db.models import Run
+from browser_use_agent.policy.research import validate_output_fields
 from browser_use_agent.runs.status import TERMINAL_STATUSES, RunStatus
 
 
@@ -32,6 +33,7 @@ def create_run(
     goal: str,
     *,
     profile_id: str | None = None,
+    output_fields: dict[str, str] | None = None,
 ) -> Run:
     """Insert a queued run and emit ``task_received`` / ``run_created`` audit events.
 
@@ -39,15 +41,25 @@ def create_run(
         session: Active SQLAlchemy session (caller commits).
         goal: Operator natural-language goal.
         profile_id: Optional browser profile key.
+        output_fields: Optional field definitions for sourced research.
 
     Returns:
         The persisted :class:`~browser_use_agent.db.models.Run` row.
     """
+    output_fields = validate_output_fields(output_fields)
     run = Run(
         id=uuid.uuid4(),
         goal=goal,
         status=RunStatus.QUEUED.value,
         profile_id=profile_id,
+        metadata_={
+            "output_fields": output_fields,
+            "evidence": [],
+            "research_pages": [],
+            "result": None,
+        }
+        if output_fields
+        else {},
     )
     session.add(run)
     session.flush()
@@ -56,7 +68,7 @@ def create_run(
     writer.append(
         run.id,
         "task_received",
-        {"goal": goal, "profile_id": profile_id},
+        {"goal": goal, "profile_id": profile_id, "output_fields": output_fields or {}},
         actor="human",
     )
     writer.append(
@@ -286,6 +298,8 @@ def retry_run(session: Session, run_id: uuid.UUID) -> Run:
         run.status = RunStatus.QUEUED.value
         run.finished_at = None
         run.updated_at = now
+        if (run.metadata_ or {}).get("output_fields"):
+            run.metadata_ = {**run.metadata_, "evidence": [], "research_pages": [], "result": None}
         session.flush()
         AuditWriter(session).append(
             run.id,
@@ -294,6 +308,7 @@ def retry_run(session: Session, run_id: uuid.UUID) -> Run:
                 "status": run.status,
                 "previous_status": previous,
                 "mode": "requeue",
+                "research_reset": bool((run.metadata_ or {}).get("output_fields")),
             },
             actor="human",
         )

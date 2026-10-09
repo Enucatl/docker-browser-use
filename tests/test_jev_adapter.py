@@ -102,6 +102,7 @@ def test_action_space_encoded_once() -> None:
         "NAVIGATE",
         "SWITCH_TAB",
         "DONE",
+        "EXTRACT",
         "BITWARDEN_LOGIN",
         "BITWARDEN_IDENTITY",
         "BITWARDEN_CARD",

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
@@ -293,6 +294,78 @@ class RunWorker:
             task.add_done_callback(_cleanup)
             self.telemetry.add_queue_depth(1)
             return task
+
+    async def recover_runs(self) -> None:
+        """Restart queued runs and fail runs whose in-memory workers were lost."""
+        session = self.session_factory()
+        use_async = isinstance(session, AsyncSession)
+        interrupted = {
+            RunStatus.RUNNING,
+            RunStatus.PAUSED,
+            RunStatus.AWAITING_APPROVAL,
+            RunStatus.AWAITING_HUMAN,
+        }
+        statuses = [RunStatus.QUEUED.value, *(status.value for status in interrupted)]
+        try:
+            if use_async:
+                runs = list(
+                    (
+                        await session.scalars(
+                            select(Run).where(Run.status.in_(statuses))
+                        )
+                    ).all()
+                )
+            else:
+                runs = list(
+                    session.scalars(select(Run).where(Run.status.in_(statuses))).all()
+                )
+            queued: list[uuid.UUID] = []
+            now = datetime.now(UTC)
+            for run in runs:
+                try:
+                    previous = RunStatus(run.status)
+                except ValueError:
+                    continue
+                if previous == RunStatus.QUEUED:
+                    queued.append(run.id)
+                elif previous in interrupted:
+                    run.status = RunStatus.FAILED.value
+                    run.updated_at = now
+                    run.finished_at = now
+
+                    def fail(
+                        sync: Session,
+                        run_id: uuid.UUID = run.id,
+                        previous_status: RunStatus = previous,
+                    ) -> None:
+                        if previous_status == RunStatus.AWAITING_APPROVAL:
+                            approval_service.mark_approval_timed_out(sync, run_id)
+                        AuditWriter(sync).append(
+                            run_id,
+                            "run_failed",
+                            {
+                                "error": "worker_interrupted",
+                                "previous_status": previous_status.value,
+                            },
+                            actor="system",
+                        )
+
+                    if use_async:
+                        await session.run_sync(fail)
+                    else:
+                        fail(session)
+            if use_async:
+                await session.commit()
+            elif runs:
+                session.commit()
+        finally:
+            if use_async:
+                await session.close()
+            else:
+                session.close()
+
+        for run_id in queued:
+            await self.start_run(run_id)
 
     async def _guarded_run(self, run_id: uuid.UUID) -> LoopOutcome:
         """Acquire the global semaphore and execute one run.

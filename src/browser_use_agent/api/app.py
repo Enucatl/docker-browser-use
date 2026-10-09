@@ -59,7 +59,10 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        """Detach Browser Use on shutdown without killing Chromium."""
+        """Recover persisted runs on startup and detach Browser Use on shutdown."""
+        worker: RunWorker | None = getattr(app.state, "run_worker", None)
+        if worker is not None:
+            await worker.recover_runs()
         yield
         manager: BrowserSessionManager | None = getattr(app.state, "browser_session_manager", None)
         if manager is not None:

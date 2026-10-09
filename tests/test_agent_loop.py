@@ -6,6 +6,7 @@ import asyncio
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -244,6 +245,41 @@ async def test_cooperative_cancel_between_steps() -> None:
         assert browser.executed[0].kind == ActionKind.SCROLL
 
     await _run()
+
+
+async def test_worker_recovery_requeues_untouched_and_fails_interrupted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Startup recovery restarts queued runs without replaying active runs."""
+    import browser_use_agent.agent.worker as worker_module
+
+    queued = SimpleNamespace(id=uuid.uuid4(), status=RunStatus.QUEUED.value)
+    interrupted = SimpleNamespace(
+        id=uuid.uuid4(),
+        status=RunStatus.RUNNING.value,
+        updated_at=None,
+        finished_at=None,
+    )
+    result = MagicMock()
+    result.all.return_value = [queued, interrupted]
+    session = MagicMock()
+    session.scalars.return_value = result
+    audit = RecordingAuditWriter()
+    monkeypatch.setattr(worker_module, "AuditWriter", lambda _session: audit)
+    worker = RunWorker(lambda: session)
+    started: list[uuid.UUID] = []
+
+    async def start_run(run_id: uuid.UUID) -> None:
+        started.append(run_id)
+
+    monkeypatch.setattr(worker, "start_run", start_run)
+    await worker.recover_runs()
+
+    assert started == [queued.id]
+    assert interrupted.status == RunStatus.FAILED.value
+    assert interrupted.finished_at is not None
+    assert audit.types() == ["run_failed"]
+    assert audit.events[0].payload["error"] == "worker_interrupted"
 
 
 async def test_secrets_redacted_in_stored_payloads() -> None:

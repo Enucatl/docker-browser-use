@@ -22,6 +22,30 @@ mkdir -p "${USER_DATA_DIR}" "${DOWNLOAD_DIR}" /tmp/chromium \
   /tmp/nginx_client_body /tmp/nginx_proxy /tmp/nginx_fastcgi \
   /tmp/nginx_uwsgi /tmp/nginx_scgi
 
+# Linux Chromium reads NSS, not the mounted PEM bundle. The legacy location
+# remains supported by newer Chromium releases as well.
+NSS_DB="${HOME}/.pki/nssdb"
+mkdir -p "${NSS_DB}"
+if [ ! -f "${NSS_DB}/cert9.db" ]; then
+  certutil -N --empty-password -d "sql:${NSS_DB}"
+fi
+# Remove only our imports so withdrawn host CAs do not remain trusted.
+certutil -L -d "sql:${NSS_DB}" | awk '/^browser-use-host-ca-/ {print $1}' |
+  while read -r nickname; do
+    certutil -D -d "sql:${NSS_DB}" -n "${nickname}"
+  done
+CA_DIR="$(mktemp -d /tmp/chromium/host-cas.XXXXXX)"
+awk -v dir="${CA_DIR}" '
+  /-----BEGIN CERTIFICATE-----/ {file = dir "/" ++n ".pem"}
+  file != "" {print > file}
+  /-----END CERTIFICATE-----/ {close(file); file = ""}
+' /etc/ssl/certs/ca-certificates.crt
+for certificate in "${CA_DIR}"/*.pem; do
+  certutil -A -d "sql:${NSS_DB}" -t "C,," \
+    -n "browser-use-host-ca-$(basename "${certificate}" .pem)" -i "${certificate}"
+done
+rm -rf "${CA_DIR}"
+
 # Drop stale singleton locks left by a previous container instance on this volume.
 rm -f \
   "${USER_DATA_DIR}/SingletonLock" \
@@ -36,6 +60,9 @@ fi
 # Smoke mode: prove the image can start Chromium, then exit (headless; no Xvfb needed).
 if [ "${1:-}" = "smoke" ]; then
   shift
+  if [ "$#" -eq 0 ]; then
+    set -- about:blank
+  fi
   exec chromium \
     --headless=new \
     --ozone-platform=headless \
@@ -45,7 +72,6 @@ if [ "${1:-}" = "smoke" ]; then
     --disk-cache-dir=/tmp/chromium/cache \
     ${CHROMIUM_FLAGS:-} \
     --dump-dom \
-    "about:blank" \
     "$@"
 fi
 

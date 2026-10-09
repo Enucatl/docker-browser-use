@@ -25,6 +25,30 @@ The image registers Bitwarden as an external Chromium extension. On first Chrome
 start, Chromium copies it into the profile volume; do not replace this volume
 with an operator's personal browser profile.
 
+## Intranet certificates
+
+Compose mounts the host's `/etc/ssl/certs/ca-certificates.crt` read-only.
+Chromium on Linux uses an NSS database rather than this PEM bundle directly.
+The entrypoint imports the bundle into `/home/browser/.pki/nssdb` before launch,
+with trust for HTTPS certificate authorities. Each start replaces the previous
+host imports, including removal of CAs withdrawn from the bundle.
+
+After changing the host bundle, recreate the browser and restart the controller
+to clear its cached CDP connection:
+
+```bash
+docker compose up -d --no-deps --pull never --force-recreate browser
+docker compose restart controller
+```
+
+To check HTTPS trust using an isolated temporary Chrome profile, substitute an
+intranet URL below. The check verifies that it loads without a browser error
+page and that an unrelated self-signed certificate is still rejected:
+
+```bash
+sh scripts/check-browser-tls.sh https://intranet.example/
+```
+
 ## Hardening choice
 
 Baseline profiles live in `../compose-security-baseline/hardening.yml`.

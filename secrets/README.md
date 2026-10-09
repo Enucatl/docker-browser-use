@@ -14,6 +14,7 @@ Put local secret files in this directory. Real secret values stay out of git
 | `openrouter_api_key` | Compose `controller` (`TEXT_LLM_API_KEY_FILE`) | paste OpenRouter API key (one line) |
 | `minio_access_key` | Compose `controller` + `minio` | MinIO access key (one line) |
 | `minio_secret_key` | Compose `controller` + `minio` | MinIO secret key (one line) |
+| `browser-use.crt`, `browser-use.key` | Browser Chromium mTLS identity | Puppet issues these from Vault into this ignored directory; host owner `101000` maps to browser UID `1000` |
 
 Example:
 

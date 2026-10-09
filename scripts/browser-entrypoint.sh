@@ -47,11 +47,11 @@ done
 rm -rf "${CA_DIR}"
 
 # Install the Browser Use client identity in Chromium's NSS database for mTLS.
-if [ -r /run/browser-use-mtls/client.crt ] && [ -r /run/browser-use-mtls/client.key ]; then
+if [ -r /run/secrets/browser_use_client_cert ] && [ -r /run/secrets/browser_use_client_key ]; then
   CLIENT_P12="$(mktemp /tmp/chromium/browser-use-client.XXXXXX.p12)"
   openssl pkcs12 -export \
-    -in /run/browser-use-mtls/client.crt \
-    -inkey /run/browser-use-mtls/client.key \
+    -in /run/secrets/browser_use_client_cert \
+    -inkey /run/secrets/browser_use_client_key \
     -out "${CLIENT_P12}" \
     -passout pass:browser-use-import
   pk12util -i "${CLIENT_P12}" -d "sql:${NSS_DB}" -W browser-use-import

@@ -136,9 +136,10 @@ services:
     volumes:
       - chrome_profiles:/data/chrome-profiles
       - browser_downloads:/data/downloads
-      - ./secrets/browser-use.crt:/run/browser-use-mtls/client.crt:ro
-      - ./secrets/browser-use.key:/run/browser-use-mtls/client.key:ro
       - /etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro
+    secrets:
+      - browser_use_client_cert
+      - browser_use_client_key
     networks:
       - default
       - browser_egress
@@ -261,6 +262,10 @@ secrets:
     file: ./secrets/minio_access_key
   minio_secret_key:
     file: ./secrets/minio_secret_key
+  browser_use_client_cert:
+    file: ./secrets/browser-use.crt
+  browser_use_client_key:
+    file: ./secrets/browser-use.key
 
 networks:
   default:
